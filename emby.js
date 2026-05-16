@@ -605,7 +605,7 @@ const HTML_CONTENT = `
 	                                    const recentUptimeClass = recentStats.uptime === '---' ? "text-slate-400" : recentUptimeValue >= 95 ? "text-emerald-400/90" : recentUptimeValue >= 80 ? "text-amber-400/90" : "text-red-400/90";
 	                                    const glowClass = isOnline ? 'bg-emerald-500' : s.status === 'updating' ? 'bg-blue-500' : s.status === 'unknown' ? 'bg-slate-500' : 'bg-red-500';
 	                                    return (
-	                                        <div key={s.id} className={"glass-card p-6 rounded-[2.5rem] hover:scale-[1.02] transition-transform duration-300 relative overflow-hidden shadow-2xl flex flex-col min-h-[430px] " + (s.status === 'offline' ? "border-red-500/40" : "")}>
+	                                        <div key={s.id} className={"glass-card p-6 rounded-[2.5rem] hover:scale-[1.02] transition-transform duration-300 relative overflow-hidden shadow-2xl flex flex-col " + (s.status === 'offline' ? "border-red-500/40" : "")}>
 	                                            <div className={"absolute -right-12 -top-12 w-40 h-40 blur-[70px] opacity-20 rounded-full transition-colors " + glowClass}></div>
                                             <div className="flex justify-between items-start mb-6 relative z-10">
                                                 <div onClick={() => setIconModalTarget(s.id)} className="w-16 h-16 bg-slate-900/80 rounded-[1.2rem] flex items-center justify-center overflow-hidden border border-white/5 shadow-inner cursor-pointer hover:border-blue-500/50" title="自定义图标">
@@ -617,12 +617,13 @@ const HTML_CONTENT = `
                                                         <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">{s.status === 'online' ? '运行中' : s.status === 'offline' ? '已掉线' : '等待测速'}</span>
                                                     </div>
                                                     {isOnline && s.latency > 0 && <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-800/50 px-2 py-0.5 rounded-md border border-slate-700">{s.latency}ms</span>}
+                                                    {s.status === 'offline' && <span className="text-[10px] font-bold text-red-300 bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/20">已离线 {formatDuration(offlineSince)}</span>}
                                                 </div>
 	                                            </div>
 	                                            <h3 className="font-black text-xl text-white truncate mb-1">{hideServerMeta ? '已隐藏节点信息' : s.name}</h3>
 	                                            <p className="text-[10px] text-slate-400 truncate mb-6 font-mono font-bold opacity-70">{hideServerMeta ? '🔒 ********' : '🔗 ' + stripProtocol(s.url)}</p>
 	                                            
-	                                            <div className="grid grid-cols-2 gap-3 bg-slate-900/50 rounded-3xl p-4 border border-white/5 shadow-inner mb-5">
+	                                            <div className="mt-auto grid grid-cols-2 gap-3 bg-slate-900/50 rounded-3xl p-4 border border-white/5 shadow-inner mb-5">
 	                                                <div className="text-center">
 	                                                    <div className="text-[9px] text-slate-500 font-black mb-1 uppercase tracking-widest">近 60 分钟可用率</div>
 	                                                    <div className={"text-xl font-black " + recentUptimeClass}>{recentStats.uptime}{recentStats.uptime === '---' ? '' : '%'}</div>
@@ -633,9 +634,8 @@ const HTML_CONTENT = `
 	                                                    <div className="text-xl font-black text-red-400/90">{recentStats.offline}</div>
 	                                                </div>
 	                                            </div>
-	                                            <div className="min-h-[120px] mb-5">
-	                                                {s.mediaStats && s.mediaStats.enabled && (
-	                                                    <div className="p-4 rounded-3xl bg-slate-950/40 border border-white/5 h-full">
+	                                            {s.mediaStats && s.mediaStats.enabled && (
+	                                                <div className="mb-5 p-4 rounded-3xl bg-slate-950/40 border border-white/5">
 	                                                        <div className="flex items-center justify-between mb-3">
 	                                                            <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">媒体库资源</span>
 	                                                            <span className={"text-[10px] font-bold " + (s.mediaStats.lastError ? "text-red-400" : "text-slate-500")}>{s.mediaStats.lastError ? "统计失败" : "24h 变化"}</span>
@@ -659,11 +659,7 @@ const HTML_CONTENT = `
 	                                                        </div>
 	                                                        <div title={s.mediaStats.lastError || ''} className={"mt-3 text-[9px] font-mono " + (s.mediaStats.lastError ? "text-red-400 whitespace-normal" : "text-slate-600 truncate")}>统计: {formatCheckTime(s.mediaStats.lastCheck)}{s.mediaStats.lastError ? ' / ' + s.mediaStats.lastError : ''}</div>
 	                                                    </div>
-	                                                )}
-	                                            </div>
-	                                            <div className={"h-9 mb-4 px-4 py-2 rounded-2xl border text-xs font-bold flex items-center " + (s.status === 'offline' ? "bg-red-500/10 border-red-500/20 text-red-300" : "bg-transparent border-transparent text-transparent")}>
-	                                                {s.status === 'offline' ? '已离线 ' + formatDuration(offlineSince) : '状态占位'}
-	                                            </div>
+	                                            )}
 	                                            <div className="flex justify-between items-center relative z-10 pt-2 opacity-70 hover:opacity-100 transition-opacity">
 	                                                <span className="text-[9px] text-slate-500 font-mono font-bold">最近检测: {formatCheckTime(s.lastCheck)}</span>
 	                                                <div className="flex items-center gap-3">
