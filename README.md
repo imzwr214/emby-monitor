@@ -32,6 +32,8 @@
 └── wrangler.toml  # Cloudflare Workers 配置
 ```
 
+`wrangler.toml` 只在使用 Wrangler 命令行部署，或者 Cloudflare 连接仓库自动构建时需要。按下面的控制台方式手动部署时，可以忽略这个文件。
+
 ## 部署要求
 
 - Cloudflare Workers
