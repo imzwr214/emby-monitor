@@ -164,6 +164,7 @@ const HTML_CONTENT = `
             const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
             const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
             const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
+            const [quickImportText, setQuickImportText] = useState('');
             const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
             const [isLoading, setIsLoading] = useState(true);
             const [activeTab, setActiveTab] = useState('cards');
@@ -362,11 +363,12 @@ const HTML_CONTENT = `
 	                return (b.latency || 0) - (a.latency || 0);
 	            });
 
-	            const resetServerForm = () => {
-	                setAddForm({ name: '', protocol: 'https://', host: '', port: '443' });
-	                setMediaForm({ enabled: false, username: '', password: '' });
-	                setEditingServerId(null);
-	            };
+            const resetServerForm = () => {
+                setAddForm({ name: '', protocol: 'https://', host: '', port: '443' });
+                setMediaForm({ enabled: false, username: '', password: '' });
+                setQuickImportText('');
+                setEditingServerId(null);
+            };
 
 	            const splitServerUrl = (value) => {
 	                let raw = String(value || '').trim();
@@ -384,10 +386,65 @@ const HTML_CONTENT = `
 	                }
 	            };
 
-	            const updateHostFromInput = (value) => {
-	                const parsed = splitServerUrl(value);
-	                setAddForm({...addForm, protocol: parsed.protocol, host: parsed.host, port: parsed.port});
-	            };
+            const updateHostFromInput = (value) => {
+                const parsed = splitServerUrl(value);
+                setAddForm({...addForm, protocol: parsed.protocol, host: parsed.host, port: parsed.port});
+            };
+
+            const extractFieldFromText = (lines, labels, skipPattern) => {
+                const labelPattern = labels.join('|');
+                const directPattern = new RegExp('^(?:' + labelPattern + ')\\s*(?:[|:：=\\-]+)?\\s*(.+)$', 'i');
+                for (const line of lines) {
+                    const clean = line.replace(/^[\\s·•*\\-_|▎]+/, '').trim();
+                    if (!clean || (skipPattern && skipPattern.test(clean))) continue;
+                    const directMatch = clean.match(directPattern);
+                    if (directMatch && directMatch[1]) return directMatch[1].trim();
+                    for (const label of labels) {
+                        const index = clean.toLowerCase().indexOf(label.toLowerCase());
+                        if (index < 0) continue;
+                        const rest = clean.slice(index + label.length).replace(/^[\\s|:：=\\-]+/, '').trim();
+                        if (rest) return rest;
+                    }
+                }
+                return '';
+            };
+
+            const parseQuickImportText = (value) => {
+                const text = String(value || '');
+                const lines = text.split(/\\r?\\n/);
+                const urlMatch = text.match(/https?:\\/\\/[^\\s"'<>，。；、）)】]+/i);
+                const rawUrl = urlMatch ? urlMatch[0].replace(/[.,;，。；]+$/, '') : '';
+                return {
+                    username: extractFieldFromText(lines, ['用户名称', '用户名', '账号', '账户', 'user name', 'username', 'user'], /安全密码|到期|线路|服务器/i),
+                    password: extractFieldFromText(lines, ['用户密码', '登录密码', '密码', 'password', 'pass'], /安全密码|安全码|pin|到期|线路|服务器/i),
+                    url: rawUrl
+                };
+            };
+
+            const applyQuickImportText = (value) => {
+                setQuickImportText(value);
+                const parsed = parseQuickImportText(value);
+                if (parsed.url) {
+                    const parsedUrl = splitServerUrl(parsed.url);
+                    setAddForm((current) => ({
+                        ...current,
+                        name: current.name || parsed.username || parsedUrl.host,
+                        protocol: parsedUrl.protocol,
+                        host: parsedUrl.host,
+                        port: parsedUrl.port
+                    }));
+                } else if (parsed.username) {
+                    setAddForm((current) => ({ ...current, name: current.name || parsed.username }));
+                }
+                if (parsed.username || parsed.password) {
+                    setMediaForm((current) => ({
+                        ...current,
+                        enabled: true,
+                        username: parsed.username || current.username,
+                        password: parsed.password || current.password
+                    }));
+                }
+            };
 
 	            const toggleProtocol = () => {
 	                const nextProtocol = addForm.protocol === 'https://' ? 'http://' : 'https://';
@@ -727,14 +784,23 @@ const HTML_CONTENT = `
 
                     {isAddModalOpen && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-	                            <div className="glass-modal p-8 rounded-[2.5rem] w-full max-w-md relative">
+		                            <div className="glass-modal p-8 rounded-[2.5rem] w-full max-w-md max-h-[92vh] overflow-y-auto relative">
 	                                <button onClick={() => { setIsAddModalOpen(false); resetServerForm(); }} className="absolute top-6 right-6 text-slate-500 hover:text-white font-bold text-xl">✕</button>
-	                                <h2 className="text-2xl font-black text-white mb-6">{editingServerId ? '编辑节点' : '🎯 部署新探针'}</h2>
-                                <div className="space-y-5">
-                                    <div>
-                                        <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">节点标识 (别名)</label>
-                                        <input className="w-full mt-1 bg-slate-900/80 border border-slate-700/50 p-4 rounded-2xl outline-none focus:border-emerald-500 text-sm text-white" value={addForm.name} onChange={e=>setAddForm({...addForm, name: e.target.value})} />
-                                    </div>
+		                                <h2 className="text-2xl font-black text-white mb-6">{editingServerId ? '编辑节点' : '🎯 部署新探针'}</h2>
+	                                <div className="space-y-5">
+                                        <div>
+                                            <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">快速粘贴</label>
+                                            <textarea
+                                                className="w-full mt-1 h-28 bg-slate-900/80 border border-slate-700/50 p-4 rounded-2xl outline-none focus:border-emerald-500 text-sm text-white resize-none"
+                                                placeholder="粘贴包含用户名、密码、线路的文本"
+                                                value={quickImportText}
+                                                onChange={e=>applyQuickImportText(e.target.value)}
+                                            />
+                                        </div>
+	                                    <div>
+	                                        <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">节点标识 (别名)</label>
+	                                        <input className="w-full mt-1 bg-slate-900/80 border border-slate-700/50 p-4 rounded-2xl outline-none focus:border-emerald-500 text-sm text-white" value={addForm.name} onChange={e=>setAddForm({...addForm, name: e.target.value})} />
+	                                    </div>
 		                                    <div>
 		                                        <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">节点地址</label>
 		                                        <div className="mt-1 grid grid-cols-[92px_1fr_88px] gap-2">
