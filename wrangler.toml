@@ -1,0 +1,11 @@
+name = "emby-js"
+main = "emby.js"
+compatibility_date = "2026-05-16"
+workers_dev = true
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "EMBY_DB"
+id = ""
