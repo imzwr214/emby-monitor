@@ -4,7 +4,7 @@
 
 ## 交流
 
-Telegram 群聊：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3YTI1)
+Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3YTI1)
 
 ## 预览
 
