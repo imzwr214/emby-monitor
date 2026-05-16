@@ -40,7 +40,7 @@
 
 ## 在 Cloudflare Workers 控制台部署
 
-不需要连接 GitHub，也不需要本地安装 Wrangler。直接在 Cloudflare 后台创建 Worker，并把 `emby.js` 粘贴进去即可。
+直接在 Cloudflare 后台创建 Worker，选择 Helloword，并把 `emby.js` 粘贴进去，点击部署。
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
 2. 进入 **Workers & Pages**，点击 **Create**。
@@ -53,7 +53,7 @@
 ### 创建并绑定 KV
 
 1. 在 Cloudflare Dashboard 进入 **Storage & Databases** -> **KV**。
-2. 创建一个 KV namespace，例如 `EMBY_DB`。
+2. 创建一个 KV namespace： `EMBY_DB`。
 3. 回到 Worker，进入 **Settings** -> **Bindings**。
 4. 添加 **KV namespace binding**：
 
@@ -134,26 +134,13 @@ crons = ["* * * * *"]
 
 也支持嵌套对象、数组，或者格式不太规范但包含图片链接的文本。导入后可以点击节点图标，在视觉资产库中搜索并选择自定义图标。
 
-## 请求量估算
-
-Cloudflare Workers 免费版通常按 Worker 调用次数计费，Worker 内部探测多个节点属于 subrequests。
-
-以 24 个节点、每分钟检查一次为例：
-
-- Worker 定时触发：`24 * 60 = 1440` 次/天
-- 对外探测请求：`1440 * 24 = 34560` 次/天
-
-免费额度通常足够个人使用。需要注意的是，打开面板、手动测速、图片代理和图标库同步也会产生 Worker 请求。
 
 ## 安全说明
 
-- 建议始终设置 `ADMIN_TOKEN`。
+- 建议设置 `ADMIN_TOKEN`。
 - 不要把 Telegram Bot Token、Emby 用户名和密码提交到仓库。
 - Worker 会拒绝访问内网地址、localhost 和常见私有网段，避免被用作内网探测代理。
 
-## 开发检查
-
-这个项目是单文件 Worker，没有构建步骤。修改后可以先做语法检查：
 
 ```bash
 node --check emby.js
