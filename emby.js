@@ -161,6 +161,7 @@ const HTML_CONTENT = `
             const [iconInput, setIconInput] = useState('');
             const [iconSearch, setIconSearch] = useState('');
             const [hideServerMeta, setHideServerMeta] = useState(() => localStorage.getItem('hide_server_meta') === '1');
+            const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
             const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
             const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
             const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
@@ -211,6 +212,9 @@ const HTML_CONTENT = `
             useEffect(() => {
                 localStorage.setItem('hide_server_meta', hideServerMeta ? '1' : '0');
             }, [hideServerMeta]);
+            useEffect(() => {
+                localStorage.setItem('availability_range', availabilityRange);
+            }, [availabilityRange]);
 
             // 保存时带版本时间戳，后端会拒绝旧页面/旧请求覆盖新配置
             const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm) => {
@@ -301,8 +305,12 @@ const HTML_CONTENT = `
                 return 'unknown';
             };
 
-            const getRecentStats = (server) => {
-                const history = Array.isArray(server.history) ? server.history.slice(-60) : [];
+            const getAvailabilityStats = (server, range = availabilityRange) => {
+                const now = Date.now();
+                const rangeMs = range === 'week' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+                const history = Array.isArray(server.history)
+                    ? server.history.filter(item => item && typeof item === 'object' && item.time && item.time >= now - rangeMs)
+                    : [];
                 const valid = history.filter(item => getHistoryStatus(item) !== 'unknown');
                 const online = valid.filter(item => getHistoryStatus(item) === 'online').length;
                 const offline = valid.filter(item => getHistoryStatus(item) === 'offline').length;
@@ -437,8 +445,12 @@ const HTML_CONTENT = `
 	                        lastCheck: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastCheck || 0) : 0,
 	                        lastError: '',
 	                        counts: mediaForm.enabled && !credentialsChanged ? (previousMedia.counts || null) : null,
-	                        previousCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.previousCounts || null) : null,
-	                        delta24h: mediaForm.enabled && !credentialsChanged ? (previousMedia.delta24h || null) : null
+                        previousCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.previousCounts || null) : null,
+                        delta24h: mediaForm.enabled && !credentialsChanged ? (previousMedia.delta24h || null) : null,
+                        todayCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.todayCounts || null) : null,
+                        yesterdayCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.yesterdayCounts || null) : null,
+                        dailyDelta: mediaForm.enabled && !credentialsChanged ? (previousMedia.dailyDelta || null) : null,
+                        dailyKey: mediaForm.enabled && !credentialsChanged ? (previousMedia.dailyKey || '') : ''
 	                    };
 	                };
 
@@ -512,13 +524,14 @@ const HTML_CONTENT = `
             if (isLoading) return <div className="flex items-center justify-center min-h-screen text-slate-500 font-bold">读取云端配置中...</div>;
             const onlineCount = servers.filter(s => s.status === 'online').length;
             const offlineCount = servers.filter(s => s.status === 'offline').length;
-            const recentTotals = servers.reduce((acc, s) => {
-                const stats = getRecentStats(s);
+            const availabilityLabel = availabilityRange === 'week' ? '近 7 天' : '近 24 小时';
+            const availabilityTotals = servers.reduce((acc, s) => {
+                const stats = getAvailabilityStats(s);
                 acc.online += stats.online;
                 acc.total += stats.total;
                 return acc;
             }, { online: 0, total: 0 });
-            const recentUptime = recentTotals.total ? ((recentTotals.online / recentTotals.total) * 100).toFixed(1) + "%" : "---%";
+            const availabilityUptime = availabilityTotals.total ? ((availabilityTotals.online / availabilityTotals.total) * 100).toFixed(1) + "%" : "---%";
             const notifyLabel = notifyEnabled ? '已开启' : '未开启';
             const safeIconEntries = Object.entries(getSafeIconLib());
             const iconSearchTerm = iconSearch.trim().toLowerCase();
@@ -573,9 +586,17 @@ const HTML_CONTENT = `
 	                        </div>
 	                    )}
 
-                    <div className="flex bg-slate-800/40 border border-slate-700/50 p-1.5 rounded-2xl w-fit mb-8 shadow-inner">
-                        <button onClick={() => setActiveTab('cards')} className={"px-8 py-2.5 rounded-xl text-sm font-bold transition-all " + (activeTab === 'cards' ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}>🖥️ 节点看板</button>
-                        <button onClick={() => setActiveTab('dashboard')} className={"px-8 py-2.5 rounded-xl text-sm font-bold transition-all " + (activeTab === 'dashboard' ? "bg-emerald-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}>📊 历史大盘</button>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                        <div className="flex bg-slate-800/40 border border-slate-700/50 p-1.5 rounded-2xl w-fit shadow-inner">
+                            <button onClick={() => setActiveTab('cards')} className={"px-8 py-2.5 rounded-xl text-sm font-bold transition-all " + (activeTab === 'cards' ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}>🖥️ 节点看板</button>
+                            <button onClick={() => setActiveTab('dashboard')} className={"px-8 py-2.5 rounded-xl text-sm font-bold transition-all " + (activeTab === 'dashboard' ? "bg-emerald-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}>📊 历史大盘</button>
+                        </div>
+                        {activeTab === 'cards' && (
+                            <div className="flex bg-slate-800/40 border border-slate-700/50 p-1.5 rounded-2xl w-fit shadow-inner">
+                                <button onClick={() => setAvailabilityRange('day')} className={"px-5 py-2 rounded-xl text-xs font-black transition-all " + (availabilityRange === 'day' ? "bg-emerald-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}>近 24 小时</button>
+                                <button onClick={() => setAvailabilityRange('week')} className={"px-5 py-2 rounded-xl text-xs font-black transition-all " + (availabilityRange === 'week' ? "bg-emerald-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}>近 7 天</button>
+                            </div>
+                        )}
                     </div>
 
                     {activeTab === 'cards' && (
@@ -584,7 +605,7 @@ const HTML_CONTENT = `
 	                                {[
 	                                    { label: '在线节点', value: onlineCount + "/" + servers.length, icon: "🟢", bg: 'bg-blue-500/10' },
 	                                    { label: '当前离线', value: offlineCount, icon: "🔴", bg: 'bg-red-500/10' },
-	                                    { label: '近 60 分钟可用率', value: recentUptime, icon: "📈", bg: 'bg-emerald-500/10' },
+	                                    { label: availabilityLabel + '可用率', value: availabilityUptime, icon: "📈", bg: 'bg-emerald-500/10' },
 	                                    { label: '通知状态', value: notifyLabel, icon: "✈️", bg: 'bg-purple-500/10' },
 	                                ].map((item, idx) => (
                                     <div key={idx} className="glass-card p-6 rounded-[2rem] border border-white/5 shadow-xl">
@@ -599,10 +620,10 @@ const HTML_CONTENT = `
 	                                {sortedServers.map((s, i) => {
 	                                    const iconImg = getDisplayIcon(s);
 	                                    const isOnline = s.status === 'online';
-	                                    const recentStats = getRecentStats(s);
+	                                    const availabilityStats = getAvailabilityStats(s);
 	                                    const offlineSince = getOfflineSince(s);
-	                                    const recentUptimeValue = parseFloat(recentStats.uptime);
-	                                    const recentUptimeClass = recentStats.uptime === '---' ? "text-slate-400" : recentUptimeValue >= 95 ? "text-emerald-400/90" : recentUptimeValue >= 80 ? "text-amber-400/90" : "text-red-400/90";
+	                                    const availabilityUptimeValue = parseFloat(availabilityStats.uptime);
+	                                    const availabilityUptimeClass = availabilityStats.uptime === '---' ? "text-slate-400" : availabilityUptimeValue >= 95 ? "text-emerald-400/90" : availabilityUptimeValue >= 80 ? "text-amber-400/90" : "text-red-400/90";
 	                                    const glowClass = isOnline ? 'bg-emerald-500' : s.status === 'updating' ? 'bg-blue-500' : s.status === 'unknown' ? 'bg-slate-500' : 'bg-red-500';
 	                                    return (
 	                                        <div key={s.id} className={"glass-card p-6 rounded-[2.5rem] hover:scale-[1.02] transition-transform duration-300 relative overflow-hidden shadow-2xl flex flex-col " + (s.status === 'offline' ? "border-red-500/40" : "")}>
@@ -625,20 +646,20 @@ const HTML_CONTENT = `
 	                                            
 	                                            <div className="mt-auto grid grid-cols-2 gap-3 bg-slate-900/50 rounded-3xl p-4 border border-white/5 shadow-inner mb-5">
 	                                                <div className="text-center">
-	                                                    <div className="text-[9px] text-slate-500 font-black mb-1 uppercase tracking-widest">近 60 分钟可用率</div>
-	                                                    <div className={"text-xl font-black " + recentUptimeClass}>{recentStats.uptime}{recentStats.uptime === '---' ? '' : '%'}</div>
+	                                                    <div className="text-[9px] text-slate-500 font-black mb-1 uppercase tracking-widest">{availabilityLabel}可用率</div>
+	                                                    <div className={"text-xl font-black " + availabilityUptimeClass}>{availabilityStats.uptime}{availabilityStats.uptime === '---' ? '' : '%'}</div>
 	                                                </div>
 	                                                <div className="text-center relative">
 	                                                    <div className="absolute left-0 top-1 bottom-1 w-px bg-slate-800"></div>
-	                                                    <div className="text-[9px] text-slate-500 font-black mb-1 uppercase tracking-widest">近 60 分钟离线</div>
-	                                                    <div className="text-xl font-black text-red-400/90">{recentStats.offline}</div>
+	                                                    <div className="text-[9px] text-slate-500 font-black mb-1 uppercase tracking-widest">{availabilityLabel}离线</div>
+	                                                    <div className="text-xl font-black text-red-400/90">{availabilityStats.offline}</div>
 	                                                </div>
 	                                            </div>
 	                                            {s.mediaStats && s.mediaStats.enabled && (
 	                                                <div className="mb-5 p-4 rounded-3xl bg-slate-950/40 border border-white/5">
 	                                                        <div className="flex items-center justify-between mb-3">
 	                                                            <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">媒体库资源</span>
-	                                                            <span className={"text-[10px] font-bold " + (s.mediaStats.lastError ? "text-red-400" : "text-slate-500")}>{s.mediaStats.lastError ? "统计失败" : "24h 变化"}</span>
+	                                                            <span className={"text-[10px] font-bold " + (s.mediaStats.lastError ? "text-red-400" : "text-slate-500")}>{s.mediaStats.lastError ? "统计失败" : "较昨日"}</span>
 	                                                        </div>
 	                                                        <div className="grid grid-cols-3 gap-2 text-center">
 	                                                            {[
@@ -647,7 +668,7 @@ const HTML_CONTENT = `
 	                                                                ['集数', 'episode']
 	                                                            ].map(([label, key]) => {
 	                                                                const count = s.mediaStats.counts ? s.mediaStats.counts[key] : null;
-	                                                                const delta = s.mediaStats.delta24h ? s.mediaStats.delta24h[key] : 0;
+	                                                                const delta = s.mediaStats.dailyDelta ? s.mediaStats.dailyDelta[key] : (s.mediaStats.delta24h ? s.mediaStats.delta24h[key] : 0);
 	                                                                return (
 	                                                                    <div key={key}>
 	                                                                        <div className="text-[9px] text-slate-500 font-bold mb-1">{label}</div>
@@ -819,7 +840,7 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  HISTORY_LIMIT: 60,
+  HISTORY_LIMIT: 7 * 24 * 60,
   OFFLINE_NOTIFY_DELAY_MS: 5 * 60 * 1000,
 
   async fetch(request, env) {
@@ -1118,7 +1139,11 @@ export default {
               lastError: '',
               counts: null,
               previousCounts: null,
-              delta24h: null
+              delta24h: null,
+              todayCounts: null,
+              yesterdayCounts: null,
+              dailyDelta: null,
+              dailyKey: ''
           };
       }
       const cleanCounts = (counts) => {
@@ -1130,7 +1155,16 @@ export default {
               time: Number.isFinite(Number(counts.time)) ? Number(counts.time) : 0
           };
       };
-      return {
+      const cleanDeltaCounts = (counts) => {
+          if (!counts || typeof counts !== 'object') return null;
+          return {
+              movie: Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : 0,
+              series: Number.isFinite(Number(counts.series)) ? Number(counts.series) : 0,
+              episode: Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : 0,
+              time: Number.isFinite(Number(counts.time)) ? Number(counts.time) : 0
+          };
+      };
+      const clean = {
           enabled: Boolean(mediaStats.enabled),
           username: String(mediaStats.username || '').slice(0, 120),
           password: String(mediaStats.password || ''),
@@ -1140,8 +1174,24 @@ export default {
           lastError: String(mediaStats.lastError || '').slice(0, 160),
           counts: cleanCounts(mediaStats.counts),
           previousCounts: cleanCounts(mediaStats.previousCounts),
-          delta24h: cleanCounts(mediaStats.delta24h)
+          delta24h: cleanDeltaCounts(mediaStats.delta24h),
+          todayCounts: cleanCounts(mediaStats.todayCounts),
+          yesterdayCounts: cleanCounts(mediaStats.yesterdayCounts),
+          dailyDelta: cleanDeltaCounts(mediaStats.dailyDelta),
+          dailyKey: String(mediaStats.dailyKey || '')
       };
+      if (!clean.dailyDelta && clean.counts && clean.previousCounts) {
+          clean.dailyDelta = {
+              movie: clean.counts.movie - clean.previousCounts.movie,
+              series: clean.counts.series - clean.previousCounts.series,
+              episode: clean.counts.episode - clean.previousCounts.episode,
+              time: clean.counts.time
+          };
+      }
+      if (!clean.todayCounts && clean.counts) clean.todayCounts = clean.counts;
+      if (!clean.yesterdayCounts && clean.previousCounts) clean.yesterdayCounts = clean.previousCounts;
+      if (!clean.dailyKey && clean.counts && clean.counts.time) clean.dailyKey = this.getShanghaiDayKey(clean.counts.time);
+      return clean;
   },
 
   updateOfflineNotifyState(server, previousStatus, checkedAt) {
@@ -1357,6 +1407,54 @@ export default {
       throw new Error(lastError);
   },
 
+  getShanghaiDayKey(time = Date.now(), offsetDays = 0) {
+      const shanghaiTime = time + (8 * 60 * 60 * 1000) + (offsetDays * 24 * 60 * 60 * 1000);
+      return new Date(shanghaiTime).toISOString().slice(0, 10);
+  },
+
+  isShanghaiMidnightWindow(time = Date.now()) {
+      const shanghai = new Date(time + (8 * 60 * 60 * 1000));
+      return shanghai.getUTCHours() === 0;
+  },
+
+  buildDailyMediaStats(media, counts, now = Date.now()) {
+      const todayKey = this.getShanghaiDayKey(now);
+      const yesterdayKey = this.getShanghaiDayKey(now, -1);
+      const countsWithTime = { ...counts, time: counts.time || now };
+      let todayCounts = media.todayCounts || null;
+      let yesterdayCounts = media.yesterdayCounts || null;
+
+      if (media.dailyKey && media.dailyKey !== todayKey) {
+          if (media.dailyKey === yesterdayKey && todayCounts) {
+              yesterdayCounts = todayCounts;
+          } else if (!yesterdayCounts && media.counts) {
+              yesterdayCounts = media.counts;
+          }
+          todayCounts = countsWithTime;
+      } else if (!todayCounts) {
+          todayCounts = countsWithTime;
+      }
+
+      if (this.isShanghaiMidnightWindow(now)) {
+          todayCounts = countsWithTime;
+      }
+
+      const baseline = yesterdayCounts || media.previousCounts || null;
+      const dailyDelta = baseline ? {
+          movie: countsWithTime.movie - baseline.movie,
+          series: countsWithTime.series - baseline.series,
+          episode: countsWithTime.episode - baseline.episode,
+          time: countsWithTime.time
+      } : { movie: 0, series: 0, episode: 0, time: countsWithTime.time };
+
+      return {
+          todayCounts,
+          yesterdayCounts,
+          dailyDelta,
+          dailyKey: todayKey
+      };
+  },
+
   async verifyWithLoginState(server) {
       const media = server.mediaStats || {};
       if (!media.enabled || !media.accessToken) return null;
@@ -1412,7 +1510,9 @@ export default {
       server.mediaStatsTouched = false;
       if (!media.enabled) return server;
       const now = Date.now();
-      if (!force && media.lastCheck && now - media.lastCheck < 86400000) return server;
+      const todayKey = this.getShanghaiDayKey(now);
+      const needsDailySnapshot = media.dailyKey !== todayKey || !media.todayCounts || !media.dailyDelta;
+      if (!force && media.lastCheck && !needsDailySnapshot) return server;
       server.mediaStatsTouched = true;
 
       try {
@@ -1425,12 +1525,17 @@ export default {
               token = await this.loginEmbyForMedia(server);
               counts = await this.fetchEmbyMediaCounts(server, token);
           }
-          const previous = media.counts || null;
+          const dailyStats = this.buildDailyMediaStats(media, counts, now);
+          const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
           server.mediaStats = {
               ...media,
               accessToken: token,
               previousCounts: previous,
               counts,
+              todayCounts: dailyStats.todayCounts,
+              yesterdayCounts: dailyStats.yesterdayCounts,
+              dailyDelta: dailyStats.dailyDelta,
+              dailyKey: dailyStats.dailyKey,
               delta24h: previous ? {
                   movie: counts.movie - previous.movie,
                   series: counts.series - previous.series,
