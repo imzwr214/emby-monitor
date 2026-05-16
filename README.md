@@ -27,6 +27,7 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 - 图标库搜索，可按图标名称或图片链接筛选。
 - Cloudflare KV 持久化配置，不依赖本地浏览器存储。
 - 管理 Token 保护，避免公开面板被他人修改配置。
+- 版本检测和可选一键更新。配置 Cloudflare API Token 后，可在页面里直接更新到仓库最新版。
 
 ## 项目结构
 
@@ -83,6 +84,32 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 
 页面里保存的 Telegram 配置优先级高于环境变量。
 
+### 可选：开启页面一键更新
+
+默认情况下，页面只会检查 GitHub 仓库是否有新版本。要允许页面直接更新当前 Worker，需要额外设置下面这些环境变量。
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `UPDATE_ENABLED` | 是 | 填 `1` 开启一键更新。 |
+| `CF_ACCOUNT_ID` | 是 | Cloudflare 账号 ID。 |
+| `CF_WORKER_NAME` | 是 | 当前 Worker 的名称，例如 `emby-monitor`。 |
+| `CF_API_TOKEN` | 是 | Cloudflare API Token，需要有当前账号的 Workers Scripts 编辑权限。 |
+| `UPDATE_REPO_OWNER` | 可选 | 更新来源仓库 owner，默认 `pototazhang`。 |
+| `UPDATE_REPO_NAME` | 可选 | 更新来源仓库名，默认 `emby-js`。 |
+| `UPDATE_BRANCH` | 可选 | 更新来源分支，默认 `main`。 |
+| `UPDATE_FILE` | 可选 | 更新来源文件，默认 `emby.js`。 |
+
+强烈建议同时设置 `ADMIN_TOKEN`。更新接口会强制要求 `ADMIN_TOKEN`，未设置时不会执行一键更新。
+
+Cloudflare API Token 建议只授予最小权限：
+
+- Account -> Workers Scripts -> Edit
+- 作用范围限制到当前账号
+
+更新逻辑只会覆盖 Worker 脚本内容，不会清空 KV 里的节点配置、图标库和 Telegram 配置。
+
+作为维护者，你每次发布新版本时需要同步递增 `emby.js` 里的两个 `APP_VERSION` 值。用户页面会拿当前版本和 GitHub 最新 `emby.js` 的版本号对比，发现不同就提示有新版本。
+
 ### 添加定时触发器
 
 在 Worker 的 **Settings** -> **Triggers** 中添加 Cron Trigger。
@@ -123,6 +150,7 @@ crons = ["* * * * *"]
 4. 需要媒体库统计时，勾选“启用媒体库资源统计”，填写 Emby 用户名和密码。
 5. 点击“立刻测速”可以手动刷新所有节点状态。
 6. 在“库设置”里配置 Telegram 通知和第三方图标库。
+7. 如果配置了页面一键更新，也可以在“库设置”里检查新版本并更新。
 
 ## 通知策略
 
@@ -158,5 +186,6 @@ crons = ["* * * * *"]
 ## 安全说明
 
 - 建议设置 `ADMIN_TOKEN`。
+- 如果开启一键更新，必须设置 `ADMIN_TOKEN`，并妥善保管 `CF_API_TOKEN`。
 - 不要把 Telegram Bot Token、Emby 用户名和密码提交到仓库。
 - Worker 会拒绝访问内网地址、localhost 和常见私有网段，避免被用作内网探测代理。

@@ -66,6 +66,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect } = React;
+        const APP_VERSION = '2026.05.16.1';
 
         const StatusBars = ({ history = [] }) => {
             const maxBars = 60;
@@ -171,6 +172,9 @@ const HTML_CONTENT = `
             const [notifyEnabled, setNotifyEnabled] = useState(false);
             const [configUpdatedAt, setConfigUpdatedAt] = useState(0);
             const [configRevision, setConfigRevision] = useState('');
+            const [updateInfo, setUpdateInfo] = useState(null);
+            const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+            const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
 
             // 核心修复 1：云端配置为准，禁止旧浏览器本地备份回写覆盖新配置
             const apiFetch = async (path, options = {}) => {
@@ -203,6 +207,7 @@ const HTML_CONTENT = `
                         setIconLib(data.icons); 
                         setIconInput(localStorage.getItem('last_icon_input') || ""); 
                     }
+                    checkForUpdate(false);
                 } catch(e) { console.error("读取配置失败", e); }
             };
 
@@ -578,6 +583,44 @@ const HTML_CONTENT = `
                 }
             };
 
+            const checkForUpdate = async (showAlert = true) => {
+                setIsCheckingUpdate(true);
+                try {
+                    const r = await apiFetch('/api/update/check');
+                    if (r.status === 401) {
+                        if (showAlert) alert('请先输入正确的管理 Token');
+                        return;
+                    }
+                    const data = await r.json();
+                    setUpdateInfo(data);
+                    if (showAlert) {
+                        alert(data.hasUpdate ? ('发现新版本：' + data.latestVersion) : '当前已经是最新版本');
+                    }
+                } catch(e) {
+                    if (showAlert) alert('检查更新失败：' + (e.message || '网络异常'));
+                } finally {
+                    setIsCheckingUpdate(false);
+                }
+            };
+
+            const applyUpdate = async () => {
+                if (!updateInfo || !updateInfo.hasUpdate) return alert('当前没有可更新版本');
+                if (!updateInfo.canUpdate) return alert('当前 Worker 没有配置自更新环境变量，请按 README 配置 CF_ACCOUNT_ID、CF_WORKER_NAME、CF_API_TOKEN 和 UPDATE_ENABLED');
+                if (!confirm('确认更新到 ' + updateInfo.latestVersion + '？更新会覆盖当前 Worker 代码，但不会清空 KV 配置。')) return;
+                setIsApplyingUpdate(true);
+                try {
+                    const r = await apiFetch('/api/update/apply', { method: 'POST' });
+                    const data = await r.json().catch(() => ({}));
+                    if (!r.ok || !data.ok) throw new Error(data.error || '更新失败');
+                    alert('更新完成，页面即将刷新');
+                    setTimeout(() => location.reload(), 1200);
+                } catch(e) {
+                    alert('更新失败：' + (e.message || 'Cloudflare API 调用异常'));
+                } finally {
+                    setIsApplyingUpdate(false);
+                }
+            };
+
             if (isLoading) return <div className="flex items-center justify-center min-h-screen text-slate-500 font-bold">读取云端配置中...</div>;
             const onlineCount = servers.filter(s => s.status === 'online').length;
             const offlineCount = servers.filter(s => s.status === 'offline').length;
@@ -618,6 +661,27 @@ const HTML_CONTENT = `
 
 	                    {showSettings && (
 	                        <div className="mb-8 p-6 glass-card rounded-[2rem] animate-in fade-in space-y-6">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-white/10">
+                                    <div>
+                                        <div className="text-[10px] uppercase font-bold text-slate-400 mb-2 tracking-widest">程序更新</div>
+                                        <div className="text-sm font-bold text-slate-200">
+                                            当前版本：{updateInfo ? updateInfo.currentVersion : APP_VERSION}
+                                            {updateInfo && updateInfo.hasUpdate && <span className="ml-3 text-amber-300">发现新版本 {updateInfo.latestVersion}</span>}
+                                            {updateInfo && !updateInfo.hasUpdate && <span className="ml-3 text-emerald-400">已是最新</span>}
+                                        </div>
+                                        {updateInfo && !updateInfo.canUpdate && (
+                                            <div className="text-[11px] text-slate-500 mt-1">未配置自更新环境变量时，只能提示新版本，不能一键更新。</div>
+                                        )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-3">
+                                        <button onClick={() => checkForUpdate(true)} disabled={isCheckingUpdate || isApplyingUpdate} className="px-5 py-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-xl font-bold text-sm text-slate-200 border border-slate-700">
+                                            {isCheckingUpdate ? '检查中...' : '检查更新'}
+                                        </button>
+                                        <button onClick={applyUpdate} disabled={!updateInfo || !updateInfo.hasUpdate || isApplyingUpdate} className="px-5 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:hover:bg-amber-500 rounded-xl font-black text-sm text-slate-950">
+                                            {isApplyingUpdate ? '更新中...' : '一键更新'}
+                                        </button>
+                                    </div>
+                                </div>
 	                            <div className="flex flex-col md:flex-row gap-4 items-end">
 	                                <div className="flex-1 w-full">
 	                                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2 tracking-widest">第三方图标映射库 (JSON)</label>
@@ -906,6 +970,11 @@ const HTML_CONTENT = `
 `;
 
 export default {
+  APP_VERSION: '2026.05.16.1',
+  UPDATE_REPO_OWNER: 'pototazhang',
+  UPDATE_REPO_NAME: 'emby-js',
+  UPDATE_BRANCH: 'main',
+  UPDATE_FILE: 'emby.js',
   HISTORY_LIMIT: 7 * 24 * 60,
   OFFLINE_NOTIFY_DELAY_MS: 5 * 60 * 1000,
 
@@ -985,6 +1054,52 @@ export default {
       const currentConfig = await this.loadConfig(env);
       const updatedConfig = await this.runProbeLogic(env, currentConfig);
       return this.json({ ...updatedConfig, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
+    }
+
+    if (url.pathname === '/api/update/check' && request.method === 'GET') {
+      const auth = this.requireStrictAdmin(request, env);
+      if (auth) return auth;
+
+      try {
+          const latestSource = await this.fetchLatestWorkerSource(env);
+          const latestVersion = this.extractAppVersion(latestSource) || 'unknown';
+          return this.json({
+              currentVersion: this.APP_VERSION,
+              latestVersion,
+              hasUpdate: latestVersion !== 'unknown' && latestVersion !== this.APP_VERSION,
+              canUpdate: this.canSelfUpdate(env),
+              sourceUrl: this.getUpdateRawUrl(env),
+              missing: this.getMissingUpdateEnv(env)
+          });
+      } catch(e) {
+          return this.json({
+              currentVersion: this.APP_VERSION,
+              latestVersion: 'unknown',
+              hasUpdate: false,
+              canUpdate: this.canSelfUpdate(env),
+              error: e.message || 'Check update failed',
+              missing: this.getMissingUpdateEnv(env)
+          }, 502);
+      }
+    }
+
+    if (url.pathname === '/api/update/apply' && request.method === 'POST') {
+      const auth = this.requireStrictAdmin(request, env);
+      if (auth) return auth;
+
+      if (!this.canSelfUpdate(env)) {
+          return this.json({ ok: false, error: 'Self update is not configured', missing: this.getMissingUpdateEnv(env) }, 400);
+      }
+      try {
+          const latestSource = await this.fetchLatestWorkerSource(env);
+          const latestVersion = this.extractAppVersion(latestSource);
+          if (!latestVersion) return this.json({ ok: false, error: 'Latest source has no APP_VERSION' }, 422);
+          if (latestVersion === this.APP_VERSION) return this.json({ ok: true, updated: false, version: this.APP_VERSION });
+          await this.deployWorkerSource(env, latestSource);
+          return this.json({ ok: true, updated: true, previousVersion: this.APP_VERSION, version: latestVersion });
+      } catch(e) {
+          return this.json({ ok: false, error: e.message || 'Update failed' }, 502);
+      }
     }
 
     return new Response(HTML_CONTENT, { headers: { 'Content-Type': 'text/html;charset=utf-8' } });
@@ -1074,6 +1189,97 @@ export default {
       const expected = 'Bearer ' + env.ADMIN_TOKEN;
       if (request.headers.get('Authorization') === expected) return null;
       return this.json({ error: 'Unauthorized' }, 401);
+  },
+
+  requireStrictAdmin(request, env) {
+      if (!env.ADMIN_TOKEN) return this.json({ error: 'ADMIN_TOKEN is required for update APIs' }, 401);
+      return this.requireAdmin(request, env);
+  },
+
+  getUpdateRepo(env) {
+      return {
+          owner: env.UPDATE_REPO_OWNER || this.UPDATE_REPO_OWNER,
+          repo: env.UPDATE_REPO_NAME || this.UPDATE_REPO_NAME,
+          branch: env.UPDATE_BRANCH || this.UPDATE_BRANCH,
+          file: env.UPDATE_FILE || this.UPDATE_FILE
+      };
+  },
+
+  getUpdateRawUrl(env) {
+      const repo = this.getUpdateRepo(env);
+      return 'https://raw.githubusercontent.com/' + encodeURIComponent(repo.owner) + '/' + encodeURIComponent(repo.repo) + '/' + encodeURIComponent(repo.branch) + '/' + repo.file.split('/').map(encodeURIComponent).join('/');
+  },
+
+  getMissingUpdateEnv(env) {
+      const missing = [];
+      if (!['1', 'true', 'yes', 'on'].includes(String(env.UPDATE_ENABLED || '').toLowerCase())) missing.push('UPDATE_ENABLED');
+      if (!env.CF_ACCOUNT_ID) missing.push('CF_ACCOUNT_ID');
+      if (!env.CF_WORKER_NAME) missing.push('CF_WORKER_NAME');
+      if (!env.CF_API_TOKEN) missing.push('CF_API_TOKEN');
+      return missing;
+  },
+
+  canSelfUpdate(env) {
+      return this.getMissingUpdateEnv(env).length === 0;
+  },
+
+  async fetchLatestWorkerSource(env) {
+      const sourceUrl = this.getUpdateRawUrl(env);
+      const response = await fetch(sourceUrl, {
+          headers: {
+              'Accept': 'text/plain',
+              'User-Agent': 'Emby-Cluster-Monitor-Updater/' + this.APP_VERSION
+          }
+      });
+      if (!response.ok) throw new Error('GitHub source fetch failed HTTP ' + response.status);
+      const source = await response.text();
+      if (!this.isSafeWorkerSource(source)) throw new Error('Latest source validation failed');
+      return source;
+  },
+
+  extractAppVersion(source) {
+      const match = String(source || '').match(/APP_VERSION:\s*['"]([^'"]+)['"]/);
+      return match ? match[1] : '';
+  },
+
+  isSafeWorkerSource(source) {
+      const text = String(source || '');
+      return text.length > 10000 &&
+          text.length < 5 * 1024 * 1024 &&
+          text.includes('Emby 集群探针') &&
+          text.includes('export default') &&
+          text.includes('HTML_CONTENT') &&
+          Boolean(this.extractAppVersion(text));
+  },
+
+  async deployWorkerSource(env, source) {
+      const form = new FormData();
+      form.append('metadata', JSON.stringify({
+          main_module: 'emby.js'
+      }));
+      form.append('emby.js', new Blob([source], { type: 'application/javascript+module' }), 'emby.js');
+
+      const endpoint = 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(env.CF_ACCOUNT_ID) + '/workers/scripts/' + encodeURIComponent(env.CF_WORKER_NAME) + '/content';
+      const response = await fetch(endpoint, {
+          method: 'PUT',
+          headers: {
+              'Authorization': 'Bearer ' + env.CF_API_TOKEN
+          },
+          body: form
+      });
+      const detail = await response.text();
+      if (!response.ok) {
+          throw new Error('Cloudflare deploy failed HTTP ' + response.status + (detail ? ': ' + detail.slice(0, 300) : ''));
+      }
+      try {
+          const parsed = JSON.parse(detail);
+          if (parsed && parsed.success === false) {
+              throw new Error('Cloudflare deploy rejected: ' + JSON.stringify(parsed.errors || parsed.messages || parsed).slice(0, 300));
+          }
+      } catch(e) {
+          if (e.message && e.message.startsWith('Cloudflare deploy rejected')) throw e;
+      }
+      return detail;
   },
 
   async loadConfig(env) {
