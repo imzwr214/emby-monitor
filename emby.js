@@ -1134,10 +1134,10 @@ export default {
 
   async sendTelegram(env, text, config = {}) {
       const tg = this.currentTelegramConfig(env, config);
-      if (!tg.enabled || !tg.botToken || !tg.chatId) return;
+      if (!tg.enabled || !tg.botToken || !tg.chatId) return false;
       const endpoint = 'https://api.telegram.org/bot' + tg.botToken + '/sendMessage';
       try {
-          await fetch(endpoint, {
+          const response = await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1146,7 +1146,9 @@ export default {
                   disable_web_page_preview: true
               })
           });
+          return response.ok;
       } catch(e) {}
+      return false;
   },
 
   formatNotifyTime(time) {
@@ -1883,7 +1885,7 @@ export default {
       const probedById = new Map(probedServers.map((s) => [s.id, s]));
       const latestConfig = await this.loadConfig(env);
       const latestById = new Map(latestConfig.servers.map((s) => [s.id, s]));
-      const notifyMessages = [];
+      const notifyQueue = [];
       const sourceConfig = latestConfig;
 	      const baseConfig = this.sanitizeConfig({
 	          icons: sourceConfig.icons !== undefined ? sourceConfig.icons : latestConfig.icons,
@@ -1913,27 +1915,50 @@ export default {
 	                  mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats
 		              };
 	              const oldStatus = previouslySaved.url === latest.url ? previouslySaved.status : probed.previousStatus;
-	              if (
+              if (
 	                  this.isTelegramEnabled(env, baseConfig) &&
 	                  oldStatus === 'offline' &&
 	                  mergedServer.status === 'offline' &&
 	                  this.shouldSendOfflineAlert(mergedServer)
               ) {
-                  notifyMessages.push(this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status));
-                  mergedServer.offlineAlertSentAt = mergedServer.lastCheck;
+                  notifyQueue.push({
+                      message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status),
+                      kind: 'offline',
+                      serverId: mergedServer.id,
+                      lastCheck: mergedServer.lastCheck
+                  });
               } else if (
 	                  this.isTelegramEnabled(env, baseConfig) &&
 	                  oldStatus === 'offline' &&
 	                  mergedServer.status === 'online' &&
 	                  previouslySaved.offlineAlertSentAt
               ) {
-                  notifyMessages.push(this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status));
+                  notifyQueue.push({
+                      message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status),
+                      kind: 'online'
+                  });
               }
               return mergedServer;
           })
       };
+      const sendResults = await Promise.all(notifyQueue.map((item) => this.sendTelegram(env, item.message, baseConfig)));
+      if (notifyQueue.length) {
+          let updated = false;
+          for (const [index, ok] of sendResults.entries()) {
+              const item = notifyQueue[index];
+              if (!ok || !item || item.kind !== 'offline') continue;
+              const targetId = item.serverId;
+              const targetServer = mergedConfig.servers.find((server) => server.id === targetId);
+              if (targetServer) {
+                  targetServer.offlineAlertSentAt = item.lastCheck;
+                  updated = true;
+              }
+          }
+          if (updated) {
+              mergedConfig.updatedAt = Math.max(mergedConfig.updatedAt || 0, Date.now());
+          }
+      }
       await this.saveConfig(env, mergedConfig);
-      await Promise.all(notifyMessages.map((message) => this.sendTelegram(env, message, baseConfig)));
       return mergedConfig;
   }
 };
