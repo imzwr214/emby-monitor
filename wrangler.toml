@@ -8,4 +8,4 @@ crons = ["*/5 * * * *"]
 
 [[kv_namespaces]]
 binding = "EMBY_DB"
-id = ""
+id = "1f1c651cf9a44f0dbe211df04e29f564"
