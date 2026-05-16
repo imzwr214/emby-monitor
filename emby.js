@@ -159,6 +159,7 @@ const HTML_CONTENT = `
             const [editingServerId, setEditingServerId] = useState(null);
             const [iconModalTarget, setIconModalTarget] = useState(null);
             const [iconInput, setIconInput] = useState('');
+            const [iconSearch, setIconSearch] = useState('');
             const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
             const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
             const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
@@ -203,6 +204,9 @@ const HTML_CONTENT = `
             };
 
             useEffect(() => { fetchConfigData().finally(() => setIsLoading(false)); }, []);
+            useEffect(() => {
+                if (iconModalTarget) setIconSearch('');
+            }, [iconModalTarget]);
 
             // 保存时带版本时间戳，后端会拒绝旧页面/旧请求覆盖新配置
             const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm) => {
@@ -512,6 +516,11 @@ const HTML_CONTENT = `
             }, { online: 0, total: 0 });
             const recentUptime = recentTotals.total ? ((recentTotals.online / recentTotals.total) * 100).toFixed(1) + "%" : "---%";
             const notifyLabel = notifyEnabled ? '已开启' : '未开启';
+            const safeIconEntries = Object.entries(getSafeIconLib());
+            const iconSearchTerm = iconSearch.trim().toLowerCase();
+            const filteredIconEntries = iconSearchTerm
+                ? safeIconEntries.filter(([key, url]) => (key + ' ' + url).toLowerCase().includes(iconSearchTerm))
+                : safeIconEntries;
 
             return (
                 <div className="max-w-7xl mx-auto p-4 md:p-10 relative">
@@ -734,7 +743,20 @@ const HTML_CONTENT = `
                                 <button onClick={() => setIconModalTarget(null)} className="absolute top-6 right-6 text-slate-500 hover:text-white font-bold text-xl z-10">✕</button>
                                 <h2 className="text-2xl font-black text-white mb-2">🖼️ 视觉资产库</h2>
                                 <p className="text-xs text-slate-400 mb-6 font-bold">点击下方 Logo 为节点应用自定义图标。</p>
-                                <div className="overflow-y-auto pr-2 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-4 pb-4 mt-6">
+                                <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-4">
+                                    <input
+                                        type="text"
+                                        className="flex-1 bg-slate-950/80 border border-slate-700/60 px-4 py-3 rounded-2xl outline-none focus:border-blue-500 text-sm text-slate-100"
+                                        placeholder="搜索图标名称或链接"
+                                        value={iconSearch}
+                                        onChange={e => setIconSearch(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1 whitespace-nowrap">
+                                        {filteredIconEntries.length} / {safeIconEntries.length}
+                                    </div>
+                                </div>
+                                <div className="overflow-y-auto pr-2 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-4 pb-4 mt-2">
                                     <div onClick={async () => {
                                         const up = servers.map(s => s.id === iconModalTarget ? {...s, customIcon: null} : s); 
                                         await syncToCloud(up, iconLib);
@@ -742,7 +764,7 @@ const HTML_CONTENT = `
                                     }} className="aspect-square bg-slate-900/50 rounded-[1.2rem] border border-slate-700/50 flex flex-col items-center justify-center cursor-pointer hover:border-red-500/50 hover:bg-red-500/10">
                                         <span className="text-[10px] font-bold text-slate-500">自动匹配</span>
                                     </div>
-                                    {Object.entries(getSafeIconLib()).map(([key, url], idx) => (
+                                    {filteredIconEntries.map(([key, url], idx) => (
                                         <div key={idx} onClick={async () => {
                                             const up = servers.map(s => s.id === iconModalTarget ? {...s, customIcon: url} : s); 
                                             await syncToCloud(up, iconLib);
@@ -752,6 +774,11 @@ const HTML_CONTENT = `
                                             <div className="absolute -bottom-6 opacity-0 group-hover:opacity-100 text-[9px] font-mono text-slate-300 bg-black/90 px-2 py-1 rounded-md pointer-events-none whitespace-nowrap z-20 shadow-xl">{key}</div>
                                         </div>
                                     ))}
+                                    {filteredIconEntries.length === 0 && (
+                                        <div className="col-span-4 sm:col-span-6 md:col-span-8 py-12 text-center text-slate-500 text-sm font-bold">
+                                            没有匹配的图标
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
