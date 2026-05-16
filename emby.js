@@ -1,5 +1,5 @@
 /**
- * Emby 集群探针 - 终极稳定版 (防黑屏 + 防蒸发 + 暴力图标提取)
+ * Emby 集群探针
  */
 
 const HTML_CONTENT = `
@@ -553,7 +553,7 @@ const HTML_CONTENT = `
 	                                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2 tracking-widest">第三方图标映射库 (JSON)</label>
 	                                    <input type="text" className="w-full bg-slate-900/80 border border-slate-700/50 p-4 rounded-xl outline-none focus:border-blue-500 text-sm text-slate-200" value={iconInput} onChange={e => setIconInput(e.target.value)} />
 	                                </div>
-	                                <button onClick={handleSyncIcons} className="px-8 py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm text-white">暴力拉取</button>
+	                                <button onClick={handleSyncIcons} className="px-8 py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm text-white">拉取图标</button>
 	                            </div>
 	                            <div className="grid grid-cols-1 md:grid-cols-[140px_1fr_1fr_120px] gap-4 items-end pt-5 border-t border-white/10">
 	                                <label className="flex items-center gap-3 text-sm font-bold text-slate-300 pb-4">
