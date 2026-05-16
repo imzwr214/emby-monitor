@@ -155,7 +155,3 @@ crons = ["* * * * *"]
 - 不要把 Telegram Bot Token、Emby 用户名和密码提交到仓库。
 - Worker 会拒绝访问内网地址、localhost 和常见私有网段，避免被用作内网探测代理。
 
-
-```bash
-node --check emby.js
-```
