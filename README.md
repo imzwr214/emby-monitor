@@ -95,6 +95,20 @@ crons = ["* * * * *"]
 
 控制台里通常只需要填写 Cron 表达式本身，例如 `*/5 * * * *`。
 
+### 绑定自定义域名
+
+如果不想使用默认的 `workers.dev` 地址，可以给 Worker 绑定自己的域名或子域名。
+
+1. 先确认域名已经接入 Cloudflare，并且当前账号里能看到这个域名的 zone。
+2. 打开刚创建的 Worker。
+3. 进入 **Domains**。如果后台没有这个标签，就进入 **Settings** -> **Domains & Routes**。
+4. 点击 **Add** -> **Custom Domain**。
+5. 填写要绑定的域名，例如 `emby.example.com`。
+6. 点击 **Add Custom Domain**，等待 Cloudflare 自动创建 DNS 记录和证书。
+7. 绑定完成后，直接访问这个域名即可打开面板。
+
+注意：要绑定的主机名不能已经存在同名 CNAME 记录。如果之前手动添加过同名 DNS 记录，先删除旧记录，再添加 Custom Domain。
+
 ## 使用方式
 
 1. 打开 Worker 访问地址。
