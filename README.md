@@ -2,6 +2,10 @@
 
 一个部署在 Cloudflare Workers 上的 Emby 节点监控面板。它会定时探测多个 Emby 服务器的在线状态、延迟和最近 7 天历史记录，并支持 Telegram 通知、媒体库数量统计和自定义图标库。
 
+## 交流
+
+Telegram 群聊：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3YTI1)
+
 ## 预览
 
 ### 节点看板
@@ -156,4 +160,3 @@ crons = ["* * * * *"]
 - 建议设置 `ADMIN_TOKEN`。
 - 不要把 Telegram Bot Token、Emby 用户名和密码提交到仓库。
 - Worker 会拒绝访问内网地址、localhost 和常见私有网段，避免被用作内网探测代理。
-
