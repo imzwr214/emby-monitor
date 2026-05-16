@@ -108,13 +108,11 @@ Cloudflare API Token 建议只授予最小权限：
 
 更新逻辑只会覆盖 Worker 脚本内容，不会清空 KV 里的节点配置、图标库和 Telegram 配置。
 
-作为维护者，你每次发布新版本时需要同步递增 `emby.js` 里的两个 `APP_VERSION` 值。用户页面会拿当前版本和 GitHub 最新 `emby.js` 的版本号对比，发现不同就提示有新版本。
-
 ### 添加定时触发器
 
 在 Worker 的 **Settings** -> **Triggers** 中添加 Cron Trigger。
 
-默认建议每 5 分钟执行一次：
+默认每 5 分钟执行一次：
 
 ```toml
 crons = ["*/5 * * * *"]
