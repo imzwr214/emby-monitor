@@ -36,39 +36,37 @@
 
 - Cloudflare Workers
 - Cloudflare KV namespace
-- Wrangler，或使用 Cloudflare Pages/Workers 的 GitHub 自动部署
+- 一个 Cloudflare 账号
 
-默认定时任务在 `wrangler.toml` 中配置为每 5 分钟执行一次：
+## 在 Cloudflare Workers 控制台部署
 
-```toml
-[triggers]
-crons = ["*/5 * * * *"]
-```
+不需要连接 GitHub，也不需要本地安装 Wrangler。直接在 Cloudflare 后台创建 Worker，并把 `emby.js` 粘贴进去即可。
 
-如果要改成每分钟一次：
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
+2. 进入 **Workers & Pages**，点击 **Create**。
+3. 选择 **Workers**，创建一个新的 Worker。
+4. 打开刚创建的 Worker，进入 **Edit code**。
+5. 删除默认示例代码，把本仓库的 `emby.js` 内容完整粘贴进去。
+6. 点击 **Deploy** 保存并发布。
+7. 回到 Worker 的 **Settings**，按下面的说明绑定 KV、设置环境变量和添加定时触发器。
 
-```toml
-[triggers]
-crons = ["* * * * *"]
-```
+### 创建并绑定 KV
 
-## Cloudflare 配置
+1. 在 Cloudflare Dashboard 进入 **Storage & Databases** -> **KV**。
+2. 创建一个 KV namespace，例如 `EMBY_DB`。
+3. 回到 Worker，进入 **Settings** -> **Bindings**。
+4. 添加 **KV namespace binding**：
 
-### KV
-
-创建一个 KV namespace，并绑定到 Worker：
-
-```toml
-[[kv_namespaces]]
-binding = "EMBY_DB"
-id = "你的 KV namespace ID"
-```
+| 项目 | 值 |
+| --- | --- |
+| Variable name | `EMBY_DB` |
+| KV namespace | 刚创建的 KV namespace |
 
 `EMBY_DB` 用来保存节点列表、图标库、Telegram 配置和探测历史。
 
-### 环境变量
+### 设置环境变量
 
-推荐至少设置 `ADMIN_TOKEN`。
+在 Worker 的 **Settings** -> **Variables** 中添加环境变量。推荐至少设置 `ADMIN_TOKEN`。
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
@@ -79,15 +77,23 @@ id = "你的 KV namespace ID"
 
 页面里保存的 Telegram 配置优先级高于环境变量。
 
-## 部署命令
+### 添加定时触发器
 
-安装 Wrangler 后，可以直接部署：
+在 Worker 的 **Settings** -> **Triggers** 中添加 Cron Trigger。
 
-```bash
-npx wrangler deploy
+默认建议每 5 分钟执行一次：
+
+```toml
+crons = ["*/5 * * * *"]
 ```
 
-如果你已经在 Cloudflare Workers 中绑定 GitHub 仓库，推送到 `main` 分支后会自动触发部署。
+如果要改成每分钟一次：
+
+```toml
+crons = ["* * * * *"]
+```
+
+控制台里通常只需要填写 Cron 表达式本身，例如 `*/5 * * * *`。
 
 ## 使用方式
 
