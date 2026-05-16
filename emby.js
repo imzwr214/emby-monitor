@@ -160,6 +160,7 @@ const HTML_CONTENT = `
             const [iconModalTarget, setIconModalTarget] = useState(null);
             const [iconInput, setIconInput] = useState('');
             const [iconSearch, setIconSearch] = useState('');
+            const [hideServerMeta, setHideServerMeta] = useState(() => localStorage.getItem('hide_server_meta') === '1');
             const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
             const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
             const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
@@ -207,6 +208,9 @@ const HTML_CONTENT = `
             useEffect(() => {
                 if (iconModalTarget) setIconSearch('');
             }, [iconModalTarget]);
+            useEffect(() => {
+                localStorage.setItem('hide_server_meta', hideServerMeta ? '1' : '0');
+            }, [hideServerMeta]);
 
             // 保存时带版本时间戳，后端会拒绝旧页面/旧请求覆盖新配置
             const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm) => {
@@ -529,7 +533,11 @@ const HTML_CONTENT = `
                             <h1 className="text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 tracking-tighter">CLUSTER DASHBOARD</h1>
                             <p className="text-[10px] text-slate-400 font-bold tracking-widest mt-1 uppercase">高可用探针监控网络</p>
                         </div>
-                        <div className="flex items-center gap-3 w-full md:w-auto">
+                        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                            <button onClick={() => setHideServerMeta(!hideServerMeta)} className={"px-5 py-2.5 rounded-xl font-bold text-sm border shadow-sm transition-all flex items-center gap-2 " + (hideServerMeta ? "bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-600" : "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700")}>
+                                <span>{hideServerMeta ? '👁️‍🗨️' : '👁️'}</span>
+                                {hideServerMeta ? '显示信息' : '隐藏信息'}
+                            </button>
                             <button onClick={() => setShowSettings(!showSettings)} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-sm text-slate-300 border border-slate-700 shadow-sm transition-all">⚙️ 库设置</button>
 	                            <button onClick={openAddServerModal} className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 rounded-xl font-bold text-sm text-emerald-950 shadow-lg transition-all">⊕ 部署节点</button>
                             <button onClick={() => manualPing(servers)} disabled={isRefreshing} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm text-white shadow-lg transition-all flex items-center gap-2">
@@ -601,7 +609,7 @@ const HTML_CONTENT = `
 	                                            <div className={"absolute -right-12 -top-12 w-40 h-40 blur-[70px] opacity-20 rounded-full transition-colors " + glowClass}></div>
                                             <div className="flex justify-between items-start mb-6 relative z-10">
                                                 <div onClick={() => setIconModalTarget(s.id)} className="w-16 h-16 bg-slate-900/80 rounded-[1.2rem] flex items-center justify-center overflow-hidden border border-white/5 shadow-inner cursor-pointer hover:border-blue-500/50" title="自定义图标">
-                                                    {iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-2" onError={(e) => {e.target.style.display='none'}} /> : <span className="text-2xl font-black text-slate-700">{s.name ? s.name[0] : '?'}</span>}
+                                                    {hideServerMeta ? <span className="text-lg font-black text-slate-600">•••</span> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-2" onError={(e) => {e.target.style.display='none'}} /> : <span className="text-2xl font-black text-slate-700">{s.name ? s.name[0] : '?'}</span>)}
                                                 </div>
                                                 <div className="flex flex-col items-end gap-1.5 mt-1">
                                                     <div className="flex items-center gap-2 bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-full border border-white/5">
@@ -611,8 +619,8 @@ const HTML_CONTENT = `
                                                     {isOnline && s.latency > 0 && <span className="text-[10px] font-mono text-slate-400 font-bold bg-slate-800/50 px-2 py-0.5 rounded-md border border-slate-700">{s.latency}ms</span>}
                                                 </div>
 	                                            </div>
-	                                            <h3 className="font-black text-xl text-white truncate mb-1">{s.name}</h3>
-	                                            <p className="text-[10px] text-slate-400 truncate mb-6 font-mono font-bold opacity-70">🔗 {stripProtocol(s.url)}</p>
+	                                            <h3 className="font-black text-xl text-white truncate mb-1">{hideServerMeta ? '已隐藏节点信息' : s.name}</h3>
+	                                            <p className="text-[10px] text-slate-400 truncate mb-6 font-mono font-bold opacity-70">{hideServerMeta ? '🔒 ********' : '🔗 ' + stripProtocol(s.url)}</p>
 	                                            
 	                                            <div className="mt-auto grid grid-cols-2 gap-3 bg-slate-900/50 rounded-3xl p-4 border border-white/5 shadow-inner mb-5">
 	                                                <div className="text-center">
@@ -680,11 +688,16 @@ const HTML_CONTENT = `
 	                            {sortedServers.map((s) => (
                                 <div key={s.id} className="p-5 rounded-3xl bg-slate-900/30 hover:bg-slate-800/50 border border-transparent hover:border-slate-700 transition-all flex flex-col md:flex-row justify-between md:items-center gap-4">
                                     <div className="flex items-center gap-4">
+                                        {!hideServerMeta && (
+                                            <div className="w-10 h-10 rounded-xl bg-slate-800/80 border border-white/5 overflow-hidden flex items-center justify-center flex-none">
+                                                {getDisplayIcon(s) ? <img src={getProxyImgSrc(getDisplayIcon(s))} className="w-full h-full object-contain p-1.5" onError={(e) => {e.target.style.display='none'}} /> : <span className="text-sm font-black text-slate-600">{s.name ? s.name[0] : '?'}</span>}
+                                            </div>
+                                        )}
                                         <div className={"px-3 py-1.5 rounded-xl text-xs font-black " + (parseFloat(s.uptime) > 95 ? "bg-emerald-500/20 text-emerald-400" : parseFloat(s.uptime) > 50 ? "bg-amber-500/20 text-amber-400" : "bg-red-500/20 text-red-400")}>
                                             {s.totalChecks > 0 ? s.uptime + "%" : "---%"}
                                         </div>
 	                                        <div className="min-w-0">
-	                                            <div className="font-bold text-white text-base tracking-tight truncate">{s.name}</div>
+	                                            <div className="font-bold text-white text-base tracking-tight truncate">{hideServerMeta ? '已隐藏节点信息' : s.name}</div>
 	                                            <div className="text-[10px] text-slate-500 font-mono font-bold mt-1">最近检测: {formatCheckTime(s.lastCheck)}</div>
 	                                        </div>
                                     </div>
