@@ -811,6 +811,7 @@ const HTML_CONTENT = `
 
 export default {
   HISTORY_LIMIT: 60,
+  OFFLINE_NOTIFY_DELAY_MS: 5 * 60 * 1000,
 
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -953,12 +954,15 @@ export default {
   buildStatusMessage(server, previousStatus, nextStatus) {
       const title = nextStatus === 'online' ? 'Emby 节点恢复在线' : 'Emby 节点离线';
       const latency = nextStatus === 'online' && server.latency ? '\n延迟：' + server.latency + 'ms' : '';
+      const offlineDuration = nextStatus === 'offline' && server.offlineSince
+          ? '\n已连续离线：' + Math.max(1, Math.floor((server.lastCheck - server.offlineSince) / 60000)) + ' 分钟'
+          : '';
       return [
           title,
           '名称：' + server.name,
           '地址：' + server.url,
           '状态：' + (previousStatus || 'unknown') + ' -> ' + nextStatus,
-          '时间：' + this.formatNotifyTime(server.lastCheck) + latency
+          '时间：' + this.formatNotifyTime(server.lastCheck) + latency + offlineDuration
       ].join('\n');
   },
 
@@ -1052,6 +1056,8 @@ export default {
 	                      uptime: typeof s.uptime === 'string' ? s.uptime : '0.0',
 	                      latency: Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0,
 	                      lastCheck: Number.isFinite(Number(s.lastCheck)) ? Number(s.lastCheck) : 0,
+	                      offlineSince: Number.isFinite(Number(s.offlineSince)) ? Math.max(0, Number(s.offlineSince)) : 0,
+	                      offlineAlertSentAt: Number.isFinite(Number(s.offlineAlertSentAt)) ? Math.max(0, Number(s.offlineAlertSentAt)) : 0,
 	                      history: this.normalizeHistory(s.history, s.lastCheck),
 	                      mediaStats: this.normalizeMediaStats(s.mediaStats)
 	                  };
@@ -1127,6 +1133,28 @@ export default {
           previousCounts: cleanCounts(mediaStats.previousCounts),
           delta24h: cleanCounts(mediaStats.delta24h)
       };
+  },
+
+  updateOfflineNotifyState(server, previousStatus, checkedAt) {
+      if (server.status === 'offline') {
+          const wasOffline = previousStatus === 'offline';
+          const previousOfflineSince = Number.isFinite(Number(server.offlineSince)) ? Number(server.offlineSince) : 0;
+          const previousAlertSentAt = Number.isFinite(Number(server.offlineAlertSentAt)) ? Number(server.offlineAlertSentAt) : 0;
+          server.offlineSince = wasOffline && previousOfflineSince > 0 ? previousOfflineSince : checkedAt;
+          server.offlineAlertSentAt = wasOffline ? Math.max(0, previousAlertSentAt) : 0;
+          return server;
+      }
+      if (server.status === 'online') {
+          server.offlineSince = 0;
+          server.offlineAlertSentAt = 0;
+      }
+      return server;
+  },
+
+  shouldSendOfflineAlert(server) {
+      if (server.status !== 'offline') return false;
+      if (!server.offlineSince || server.offlineAlertSentAt) return false;
+      return server.lastCheck - server.offlineSince >= this.OFFLINE_NOTIFY_DELAY_MS;
   },
 
   extractIcons(input) {
@@ -1429,6 +1457,7 @@ export default {
 		              if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
 		              s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
 		              s.lastCheck = checkedAt;
+		              this.updateOfflineNotifyState(s, previousStatus, checkedAt);
 		              await this.refreshMediaStatsIfNeeded(s, !s.mediaStats || !s.mediaStats.lastCheck);
 		              s.previousStatus = previousStatus;
 		              return s;
@@ -1458,6 +1487,7 @@ export default {
 		          if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
 		          s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
 		          s.lastCheck = checkedAt;
+		          this.updateOfflineNotifyState(s, previousStatus, checkedAt);
 		          await this.refreshMediaStatsIfNeeded(s, !s.mediaStats || !s.mediaStats.lastCheck);
 		          s.previousStatus = previousStatus;
 		          return s;
@@ -1483,7 +1513,7 @@ export default {
               const probed = probedById.get(latest.id);
               if (!probed || probed.url !== latest.url) return latest;
               const previouslySaved = latestById.get(latest.id) || latest;
-              const mergedServer = {
+	              const mergedServer = {
                   ...latest,
                   status: probed.status,
                   totalChecks: probed.totalChecks,
@@ -1491,14 +1521,25 @@ export default {
                   uptime: probed.uptime,
 	                  latency: probed.latency,
 	                  lastCheck: probed.lastCheck,
+	                  offlineSince: probed.offlineSince,
+	                  offlineAlertSentAt: probed.offlineAlertSentAt,
 	                  history: probed.history,
 	                  mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats
 		              };
 	              const oldStatus = previouslySaved.url === latest.url ? previouslySaved.status : probed.previousStatus;
 	              if (
 	                  this.isTelegramEnabled(env, baseConfig) &&
-	                  (oldStatus === 'online' || oldStatus === 'offline') &&
-                  oldStatus !== mergedServer.status
+	                  oldStatus === 'offline' &&
+	                  mergedServer.status === 'offline' &&
+	                  this.shouldSendOfflineAlert(mergedServer)
+              ) {
+                  notifyMessages.push(this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status));
+                  mergedServer.offlineAlertSentAt = mergedServer.lastCheck;
+              } else if (
+	                  this.isTelegramEnabled(env, baseConfig) &&
+	                  oldStatus === 'offline' &&
+	                  mergedServer.status === 'online' &&
+	                  previouslySaved.offlineAlertSentAt
               ) {
                   notifyMessages.push(this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status));
               }
