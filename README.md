@@ -10,11 +10,11 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 
 ### 节点看板
 
-![节点看板](assets/dashboard-history.png)
+![节点看板](assets/dashboard-cards.png)
 
 ### 历史大盘
 
-![历史大盘](assets/dashboard-cards.png)
+![历史大盘](assets/dashboard-history.png)
 
 ## 功能
 
