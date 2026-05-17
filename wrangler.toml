@@ -4,7 +4,7 @@ compatibility_date = "2026-05-16"
 workers_dev = true
 
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/1 * * * *"]
 
 [[kv_namespaces]]
 binding = "EMBY_DB"
