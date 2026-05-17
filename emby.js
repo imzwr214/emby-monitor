@@ -51,12 +51,12 @@ const HTML_CONTENT = `
         .breath-offline { animation: breathe-offline 1.8s ease-in-out infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         @keyframes breathe-online {
-            0%, 100% { box-shadow: 0 0 8px rgba(16, 185, 129, .45), 0 0 0 0 rgba(16, 185, 129, .24); transform: scale(1); }
-            50% { box-shadow: 0 0 18px rgba(16, 185, 129, .85), 0 0 0 8px rgba(16, 185, 129, 0); transform: scale(1.08); }
+            0%, 100% { box-shadow: 0 0 8px rgba(16, 185, 129, .45), 0 0 0 0 rgba(16, 185, 129, .24); }
+            50% { box-shadow: 0 0 18px rgba(16, 185, 129, .85), 0 0 0 8px rgba(16, 185, 129, 0); }
         }
         @keyframes breathe-offline {
-            0%, 100% { box-shadow: 0 0 8px rgba(239, 68, 68, .50), 0 0 0 0 rgba(239, 68, 68, .28); transform: scale(1); }
-            50% { box-shadow: 0 0 20px rgba(239, 68, 68, .95), 0 0 0 9px rgba(239, 68, 68, 0); transform: scale(1.1); }
+            0%, 100% { box-shadow: 0 0 8px rgba(239, 68, 68, .50), 0 0 0 0 rgba(239, 68, 68, .28); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, .95), 0 0 0 9px rgba(239, 68, 68, 0); }
         }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
@@ -245,6 +245,7 @@ const HTML_CONTENT = `
                 const stored = localStorage.getItem('dashboard_theme') || 'system';
                 return ['system', 'light', 'dark'].includes(stored) ? stored : 'system';
             });
+            const [themeMenuOpen, setThemeMenuOpen] = useState(false);
             const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
             const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
             const [quickImportText, setQuickImportText] = useState('');
@@ -743,6 +744,7 @@ const HTML_CONTENT = `
                 { value: 'light', label: '亮色', icon: '☀' },
                 { value: 'dark', label: '暗色', icon: '☾' }
             ];
+            const currentThemeOption = themeOptions.find((item) => item.value === themeMode) || themeOptions[0];
 
             return (
                 <div className="max-w-7xl mx-auto p-4 md:p-10 relative">
@@ -752,18 +754,29 @@ const HTML_CONTENT = `
                             <p className="text-[10px] text-slate-400 font-bold tracking-widest mt-1 uppercase">高可用探针监控网络</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                            <div className="flex bg-slate-800/40 border border-slate-700/50 p-1 rounded-xl shadow-inner">
-                                {themeOptions.map((item) => (
-                                    <button
-                                        key={item.value}
-                                        onClick={() => setThemeMode(item.value)}
-                                        className={"px-3 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 " + (themeMode === item.value ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}
-                                        title={"主题：" + item.label}
-                                    >
-                                        <span>{item.icon}</span>
-                                        <span>{item.label}</span>
-                                    </button>
-                                ))}
+                            <div className="relative">
+                                <button
+                                    onClick={() => setThemeMenuOpen(!themeMenuOpen)}
+                                    className="w-11 h-11 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 shadow-sm transition-all flex items-center justify-center text-lg font-black"
+                                    title={"主题：" + currentThemeOption.label}
+                                >
+                                    {currentThemeOption.icon}
+                                </button>
+                                {themeMenuOpen && (
+                                    <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 z-40 min-w-32 p-1.5 rounded-2xl glass-card shadow-2xl">
+                                        {themeOptions.map((item) => (
+                                            <button
+                                                key={item.value}
+                                                onClick={() => { setThemeMode(item.value); setThemeMenuOpen(false); }}
+                                                className={"w-full px-3 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 text-left " + (themeMode === item.value ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50")}
+                                                title={"主题：" + item.label}
+                                            >
+                                                <span className="w-4 text-center">{item.icon}</span>
+                                                <span>{item.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                             <button onClick={() => setHideServerMeta(!hideServerMeta)} className={"px-5 py-2.5 rounded-xl font-bold text-sm border shadow-sm transition-all flex items-center gap-2 " + (hideServerMeta ? "bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-600" : "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700")}>
                                 <span>{hideServerMeta ? '👁️‍🗨️' : '👁️'}</span>
