@@ -10,8 +10,7 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 
 ### 节点看板
 
-![节点看板](<img width="1575" height="894" alt="Snipaste_2026-05-17_16-41-28" src="https://github.com/user-attachments/assets/88dd3a1d-5035-4a51-bf4b-805685b7586d" />
-)
+![节点看板](assets/dashboard-history.png)
 
 ### 历史大盘
 
