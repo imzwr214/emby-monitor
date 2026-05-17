@@ -475,12 +475,13 @@ const HTML_CONTENT = `
             };
 
             const getSafeIconLib = () => (typeof iconLib === 'object' && iconLib !== null && !Array.isArray(iconLib)) ? iconLib : {};
+            const normalizeTextForMatch = (value) => String(value || '').normalize('NFKC').toLowerCase();
             const getDisplayIcon = (server) => {
                 if (server.customIcon) return server.customIcon;
                 if (!server.name) return null;
-                const n = server.name.toLowerCase();
+                const n = normalizeTextForMatch(server.name);
                 const safeIcons = getSafeIconLib();
-                for (let k in safeIcons) { if (n.includes(k.toLowerCase())) return safeIcons[k]; }
+                for (let k in safeIcons) { if (n.includes(normalizeTextForMatch(k))) return safeIcons[k]; }
                 return null;
             };
 
@@ -496,7 +497,11 @@ const HTML_CONTENT = `
                 const history = Array.isArray(server.history) ? server.history.filter(item => item && typeof item === 'object' && item.time && item.time >= now - rangeMs) : [];
                 const valid = history.filter(item => getHistoryStatus(item) !== 'unknown');
                 const online = valid.filter(item => getHistoryStatus(item) === 'online').length;
-                const offline = valid.filter(item => getHistoryStatus(item) === 'offline').length;
+                const offline = valid.reduce((count, item, index) => {
+                    if (getHistoryStatus(item) !== 'offline') return count;
+                    const previous = valid[index - 1];
+                    return !previous || getHistoryStatus(previous) !== 'offline' ? count + 1 : count;
+                }, 0);
                 return {
                     total: valid.length,
                     online,
@@ -722,13 +727,14 @@ const HTML_CONTENT = `
             const notifyLabel = notifyEnabled ? '已开启' : '未开启';
 
             const safeIconEntries = Object.entries(getSafeIconLib());
-            const iconSearchTerm = iconSearch.trim().toLowerCase();
+            const iconSearchTerm = normalizeTextForMatch(iconSearch.trim());
             const filteredIconEntries = iconSearchTerm
-                ? safeIconEntries.filter(([key, url]) => (key + ' ' + url).toLowerCase().includes(iconSearchTerm))
+                ? safeIconEntries.filter(([key, url]) => normalizeTextForMatch(key + ' ' + url).includes(iconSearchTerm))
                 : safeIconEntries;
 
+            const normalizedSearchQuery = normalizeTextForMatch(searchQuery);
             const baseFilteredServers = servers.filter(s => {
-                const matchSearch = (s.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || (s.url || '').toLowerCase().includes(searchQuery.toLowerCase());
+                const matchSearch = normalizeTextForMatch(s.name).includes(normalizedSearchQuery) || normalizeTextForMatch(s.url).includes(normalizedSearchQuery);
                 const matchStatus = statusFilter === 'all' || s.status === statusFilter;
                 return matchSearch && matchStatus;
             });
@@ -811,7 +817,7 @@ const HTML_CONTENT = `
                                     className="px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap"
                                 >
                                     <Icons.RefreshCw className={"w-4 h-4 " + (isRefreshing ? 'animate-spin' : '')} />
-                                    <span className="inline-flex items-center justify-start w-[7.5rem] tabular-nums">
+                                    <span className="inline-flex items-center justify-center w-[7.5rem] tabular-nums">
                                         {isRefreshing ? '正在刷新...' : '刷新状态 (' + String(autoRefreshSeconds).padStart(2, '0') + 's)'}
                                     </span>
                                 </button>
