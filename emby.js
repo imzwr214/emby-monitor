@@ -32,8 +32,48 @@ const HTML_CONTENT = `
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" onerror="showBootError('Babel CDN 加载失败')"></script>
     <script src="https://cdn.tailwindcss.com" onerror="showBootError('Tailwind CDN 加载失败')"></script>
     <style>
-        html { background: #e8edf4; }
-        body { background: linear-gradient(180deg, #edf2f7 0%, #e6ebf2 100%); color: #334155; font-family: system-ui; margin: 0; }
+        html { background: #dde8f8; }
+        body {
+            background: #dde8f8;
+            color: #334155;
+            font-family: system-ui;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        .bg-canvas {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background: linear-gradient(135deg, #e8eeff 0%, #dce8fb 30%, #ede4fb 60%, #e0effe 100%);
+            overflow: hidden;
+        }
+        .bg-canvas::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.55;
+            animation: orb-drift linear infinite;
+        }
+        .orb-1 { width: 600px; height: 600px; background: radial-gradient(circle, #a5c4fd, #c4b5fd); top: -15%; left: -10%; animation-duration: 28s; }
+        .orb-2 { width: 500px; height: 500px; background: radial-gradient(circle, #fde68a, #fca5a5); top: 40%; right: -8%; animation-duration: 22s; animation-delay: -8s; }
+        .orb-3 { width: 450px; height: 450px; background: radial-gradient(circle, #6ee7f7, #a5f3cc); bottom: -10%; left: 25%; animation-duration: 32s; animation-delay: -14s; }
+        .orb-4 { width: 350px; height: 350px; background: radial-gradient(circle, #fbb6f0, #c4b5fd); top: 20%; left: 40%; animation-duration: 25s; animation-delay: -4s; opacity: 0.35; }
+        @keyframes orb-drift {
+            0% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(40px, -30px) scale(1.05); }
+            50% { transform: translate(-20px, 50px) scale(0.97); }
+            75% { transform: translate(-50px, -20px) scale(1.03); }
+            100% { transform: translate(0, 0) scale(1); }
+        }
 
         /* 自定义高级动画与玻璃拟物样式 */
         @keyframes breath-dot-online {
@@ -63,6 +103,8 @@ const HTML_CONTENT = `
         .glow-online { background-color: #10b981; animation: breath-glow-online 2.5s ease-in-out infinite; }
         .glow-offline { background-color: #f43f5e; animation: breath-glow-offline 2s ease-in-out infinite; }
 
+        .app-shell { position: relative; z-index: 1; }
+
         .glass-panel {
             background: rgba(255, 255, 255, 0.78);
             backdrop-filter: blur(24px);
@@ -82,25 +124,95 @@ const HTML_CONTENT = `
             border: 1px solid rgba(255,255,255,0.96);
             box-shadow: 0 18px 36px -24px rgba(15, 23, 42, 0.56), inset 0 1px 0 rgba(255,255,255,0.95);
         }
-        .view-switcher {
-            background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(241,245,249,0.68));
-            border: 1px solid rgba(148, 163, 184, 0.24);
-            box-shadow: 0 18px 44px -30px rgba(15, 23, 42, 0.5), inset 0 1px 0 rgba(255,255,255,0.95);
+        .tab-nav {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px;
+            background: rgba(255,255,255,0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.75);
+            border-radius: 30px;
+            box-shadow: 0 2px 12px rgba(80,100,160,0.08), 0 1px 0 rgba(255,255,255,0.9) inset;
         }
-        .view-switch-active {
-            background: linear-gradient(180deg, #ffffff, #f8fafc);
-            color: #2563eb;
-            box-shadow: 0 10px 24px -16px rgba(15, 23, 42, 0.45), inset 0 0 0 1px rgba(255,255,255,0.9);
+        .tab-btn {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 18px;
+            border-radius: 24px;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #9199b0;
+            background: transparent;
+            white-space: nowrap;
+        }
+        .tab-btn:hover { color: #5a6073; background: rgba(255,255,255,0.5); }
+        .tab-btn.active {
+            background: rgba(255,255,255,0.92);
+            color: #1a1d2e;
+            box-shadow: 0 2px 12px rgba(80,100,160,0.12), 0 1px 0 rgba(255,255,255,0.95) inset;
+        }
+        .tab-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
         }
         .dashboard-shell {
-            background: linear-gradient(180deg, rgba(248,250,252,0.86), rgba(226,232,240,0.58));
-            border: 1px solid rgba(148, 163, 184, 0.28);
-            box-shadow: 0 26px 70px -42px rgba(15, 23, 42, 0.42), inset 0 1px 0 rgba(255,255,255,0.86);
+            background: rgba(255,255,255,0.34);
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border: 1px solid rgba(255,255,255,0.72);
+            box-shadow: 0 22px 64px -42px rgba(15, 23, 42, 0.42), inset 0 1px 0 rgba(255,255,255,0.86);
         }
         .dashboard-row {
-            box-shadow: 0 12px 34px -28px rgba(15, 23, 42, 0.36), inset 0 1px 0 rgba(255,255,255,0.75);
+            background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(248,250,255,0.48));
+            backdrop-filter: blur(20px) saturate(170%);
+            -webkit-backdrop-filter: blur(20px) saturate(170%);
+            border: 1px solid rgba(255,255,255,0.82);
+            box-shadow: 0 12px 34px -26px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255,255,255,0.88);
+            position: relative;
+            overflow: hidden;
+        }
+        .dashboard-row::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            height: 58%;
+            background: linear-gradient(180deg, rgba(255,255,255,0.52) 0%, rgba(255,255,255,0) 100%);
+            pointer-events: none;
+        }
+        .dashboard-row-online {
+            background: linear-gradient(135deg, rgba(16,185,129,0.11), rgba(255,255,255,0.52) 42%, rgba(52,211,153,0.05));
+            border-color: rgba(16,185,129,0.2);
+        }
+        .dashboard-row-offline {
+            background: linear-gradient(135deg, rgba(244,63,94,0.12), rgba(255,255,255,0.52) 42%, rgba(251,113,133,0.05));
+            border-color: rgba(244,63,94,0.22);
+        }
+        .dashboard-row-updating {
+            background: linear-gradient(135deg, rgba(59,130,246,0.11), rgba(255,255,255,0.52) 42%, rgba(96,165,250,0.05));
+            border-color: rgba(59,130,246,0.2);
+        }
+        .dashboard-row-unknown {
+            background: linear-gradient(135deg, rgba(100,116,139,0.08), rgba(255,255,255,0.52) 42%, rgba(148,163,184,0.04));
+            border-color: rgba(148,163,184,0.2);
+        }
+        .dashboard-node-panel {
+            background: rgba(255,255,255,0.42);
+            border: 1px solid rgba(255,255,255,0.72);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.78);
         }
         .status-chart-shell {
+            background: linear-gradient(180deg, rgba(255,255,255,0.62), rgba(248,250,252,0.42));
+            backdrop-filter: blur(12px) saturate(150%);
+            -webkit-backdrop-filter: blur(12px) saturate(150%);
+            border: 1px solid rgba(255,255,255,0.78);
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.86), inset 0 -1px 0 rgba(148,163,184,0.16);
         }
         .glass-input {
@@ -114,6 +226,99 @@ const HTML_CONTENT = `
             border-color: #3b82f6;
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
+        .server-card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.76), rgba(246,250,255,0.6));
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border: 1px solid rgba(255,255,255,0.9);
+            box-shadow: 0 18px 44px -26px rgba(15,23,42,0.22), inset 0 1px 0 rgba(255,255,255,0.94);
+            position: relative;
+            overflow: hidden;
+        }
+        .server-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255,255,255,0.58) 0%, rgba(255,255,255,0.18) 48%, transparent 100%);
+            pointer-events: none;
+        }
+        .server-card-head {
+            position: relative;
+            padding: 16px 20px;
+            margin: -24px -24px 16px;
+            border: 1px solid rgba(255,255,255,0.58);
+            border-bottom: 1px solid rgba(255,255,255,0.38);
+            border-radius: 32px 32px 18px 18px;
+            overflow: hidden;
+        }
+        .server-card-head::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.1) 100%);
+            pointer-events: none;
+        }
+        .server-card-head > * { position: relative; z-index: 1; }
+        .server-card-head-online {
+            background: linear-gradient(135deg, rgba(16,185,129,0.16), rgba(52,211,153,0.06));
+            border-color: rgba(16,185,129,0.22);
+        }
+        .server-card-head-offline {
+            background: linear-gradient(135deg, rgba(244,63,94,0.18), rgba(251,113,133,0.07));
+            border-color: rgba(244,63,94,0.24);
+        }
+        .server-card-head-updating {
+            background: linear-gradient(135deg, rgba(59,130,246,0.16), rgba(96,165,250,0.06));
+            border-color: rgba(59,130,246,0.22);
+        }
+        .server-card-head-unknown {
+            background: linear-gradient(135deg, rgba(100,116,139,0.12), rgba(148,163,184,0.05));
+            border-color: rgba(148,163,184,0.2);
+        }
+        .server-card-section {
+            background: rgba(255,255,255,0.36);
+            border: 1px solid rgba(255,255,255,0.72);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+        }
+        .server-card-metrics { margin-bottom: 14px; }
+        .server-card-media { margin-top: auto; }
+        .server-card-footer {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(148,163,184,0.18);
+        }
+        .overview-stat {
+            border: 1.5px solid rgba(255,255,255,0.75);
+            box-shadow: 0 8px 32px rgba(80,100,160,0.1), 0 1.5px 0 rgba(255,255,255,0.9) inset;
+        }
+        .overview-stat::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            height: 58%;
+            background: linear-gradient(180deg, rgba(255,255,255,0.56) 0%, rgba(255,255,255,0) 100%);
+            pointer-events: none;
+        }
+        .overview-stat-online {
+            background: linear-gradient(135deg, rgba(16,185,129,0.13), rgba(52,211,153,0.06));
+            border-color: rgba(16,185,129,0.24);
+        }
+        .overview-stat-online:hover { box-shadow: 0 12px 36px rgba(16,185,129,0.16), 0 1.5px 0 rgba(255,255,255,0.9) inset; }
+        .overview-stat-offline {
+            background: linear-gradient(135deg, rgba(244,63,94,0.12), rgba(251,113,133,0.06));
+            border-color: rgba(244,63,94,0.22);
+        }
+        .overview-stat-offline:hover { box-shadow: 0 12px 36px rgba(244,63,94,0.16), 0 1.5px 0 rgba(255,255,255,0.9) inset; }
+        .overview-stat-uptime {
+            background: linear-gradient(135deg, rgba(59,126,255,0.13), rgba(96,165,250,0.06));
+            border-color: rgba(59,126,255,0.24);
+        }
+        .overview-stat-uptime:hover { box-shadow: 0 12px 36px rgba(59,126,255,0.16), 0 1.5px 0 rgba(255,255,255,0.9) inset; }
+        .overview-stat-alert {
+            background: linear-gradient(135deg, rgba(139,92,246,0.13), rgba(167,139,250,0.06));
+            border-color: rgba(139,92,246,0.24);
+        }
+        .overview-stat-alert:hover { box-shadow: 0 12px 36px rgba(139,92,246,0.16), 0 1.5px 0 rgba(255,255,255,0.9) inset; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
@@ -335,7 +540,12 @@ const HTML_CONTENT = `
             const [iconModalTarget, setIconModalTarget] = useState(null);
             const [iconInput, setIconInput] = useState('');
             const [iconSearch, setIconSearch] = useState('');
-            const [hideServerMeta, setHideServerMeta] = useState(() => localStorage.getItem('hide_server_meta') === '1');
+            const [privacyMode, setPrivacyMode] = useState(() => {
+                const savedMode = localStorage.getItem('privacy_mode');
+                if (['none', 'url', 'all'].includes(savedMode)) return savedMode;
+                return localStorage.getItem('hide_server_meta') === '1' ? 'all' : 'none';
+            });
+            const [isPrivacyMenuOpen, setIsPrivacyMenuOpen] = useState(false);
             const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
 
             // 搜索与过滤
@@ -357,6 +567,7 @@ const HTML_CONTENT = `
             const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
             const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(60);
             const autoRefreshTimerRef = useRef(null);
+            const privacyMenuRef = useRef(null);
 
             // API 调用封装
             const apiFetch = async (path, options = {}) => {
@@ -393,7 +604,25 @@ const HTML_CONTENT = `
 
             useEffect(() => { fetchConfigData().finally(() => setIsLoading(false)); }, []);
             useEffect(() => { if (iconModalTarget) setIconSearch(''); }, [iconModalTarget]);
-            useEffect(() => { localStorage.setItem('hide_server_meta', hideServerMeta ? '1' : '0'); }, [hideServerMeta]);
+            useEffect(() => {
+                localStorage.setItem('privacy_mode', privacyMode);
+                localStorage.setItem('hide_server_meta', privacyMode === 'all' ? '1' : '0');
+            }, [privacyMode]);
+            useEffect(() => {
+                const onPointerDown = (event) => {
+                    if (!isPrivacyMenuOpen) return;
+                    if (privacyMenuRef.current && !privacyMenuRef.current.contains(event.target)) setIsPrivacyMenuOpen(false);
+                };
+                const onKeyDown = (event) => {
+                    if (event.key === 'Escape') setIsPrivacyMenuOpen(false);
+                };
+                document.addEventListener('pointerdown', onPointerDown);
+                document.addEventListener('keydown', onKeyDown);
+                return () => {
+                    document.removeEventListener('pointerdown', onPointerDown);
+                    document.removeEventListener('keydown', onKeyDown);
+                };
+            }, [isPrivacyMenuOpen]);
             useEffect(() => { localStorage.setItem('availability_range', availabilityRange); }, [availabilityRange]);
             useEffect(() => { localStorage.setItem('availability_sort', availabilitySort); }, [availabilitySort]);
 
@@ -573,9 +802,12 @@ const HTML_CONTENT = `
                 };
             };
 
-            const applyQuickImportText = (value) => {
-                setQuickImportText(value);
+            const applyQuickImportText = () => {
+                const value = quickImportText.trim();
+                if (!value) return alert('请先粘贴包含服务器、用户名或密码的信息');
                 const parsed = parseQuickImportText(value);
+                const hasRecognizedField = Boolean(parsed.url || parsed.username || parsed.password);
+                if (!hasRecognizedField) return alert('没有识别到服务器地址、用户名或密码');
                 if (parsed.url) {
                     const parsedUrl = splitServerUrl(parsed.url);
                     setAddForm((current) => ({ ...current, name: current.name || parsed.username || parsedUrl.host, protocol: parsedUrl.protocol, host: parsedUrl.host, port: parsedUrl.port }));
@@ -725,6 +957,14 @@ const HTML_CONTENT = `
                 ? (validUptimeServers.reduce((acc, s) => acc + parseFloat(getAvailabilityStats(s).uptime), 0) / validUptimeServers.length).toFixed(1)
                 : '0.0';
             const notifyLabel = notifyEnabled ? '已开启' : '未开启';
+            const hideServerName = privacyMode === 'all';
+            const hideServerUrl = privacyMode === 'url' || privacyMode === 'all';
+            const privacyLabel = privacyMode === 'all' ? '全部隐藏' : privacyMode === 'url' ? '隐藏地址' : '正常显示';
+            const privacyOptions = [
+                { mode: 'none', label: '正常显示', desc: '显示名称和地址' },
+                { mode: 'url', label: '只隐藏地址', desc: '保留名称和图标' },
+                { mode: 'all', label: '全部隐藏', desc: '隐藏名称、地址和图标' }
+            ];
 
             const safeIconEntries = Object.entries(getSafeIconLib());
             const iconSearchTerm = normalizeTextForMatch(iconSearch.trim());
@@ -765,10 +1005,13 @@ const HTML_CONTENT = `
             const nextAvailabilitySort = () => setAvailabilitySort(availabilitySort === 'none' ? 'asc' : availabilitySort === 'asc' ? 'desc' : 'none');
 
             return (
-                <div className="min-h-screen relative overflow-x-hidden">
-                    {/* 极光背景装饰 */}
-                    <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-300/16 blur-[120px] rounded-full pointer-events-none z-0 mix-blend-multiply" />
-                    <div className="fixed top-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-300/14 blur-[100px] rounded-full pointer-events-none z-0 mix-blend-multiply" />
+                <div className="app-shell min-h-screen relative overflow-x-hidden">
+                    <div className="bg-canvas" aria-hidden="true">
+                        <div className="orb orb-1"></div>
+                        <div className="orb orb-2"></div>
+                        <div className="orb orb-3"></div>
+                        <div className="orb orb-4"></div>
+                    </div>
 
                     <div className="w-full max-w-[1600px] mx-auto px-4 py-8 md:px-8 md:py-12 relative z-10">
                         {/* Header */}
@@ -791,13 +1034,29 @@ const HTML_CONTENT = `
                             <div className="flex flex-wrap items-center gap-3">
                                 {/* 辅助功能组 (Icon-only) */}
                                 <div className="flex items-center gap-2 mr-2">
-                                    <button
-                                        onClick={() => setHideServerMeta(!hideServerMeta)}
-                                        title={hideServerMeta ? "显示节点信息" : "隐藏敏感信息"}
-                                        className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (hideServerMeta ? "bg-slate-200 text-slate-700 shadow-inner" : "bg-white/70 text-slate-500 hover:text-slate-800 hover:bg-white")}
-                                    >
-                                        {hideServerMeta ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
-                                    </button>
+                                    <div className="relative" ref={privacyMenuRef}>
+                                        <button
+                                            onClick={() => setIsPrivacyMenuOpen(!isPrivacyMenuOpen)}
+                                            title={"隐私显示：" + privacyLabel}
+                                            className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (privacyMode !== 'none' ? "bg-slate-200 text-slate-700 shadow-inner" : "bg-white/70 text-slate-500 hover:text-slate-800 hover:bg-white")}
+                                        >
+                                            {privacyMode !== 'none' ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
+                                        </button>
+                                        {isPrivacyMenuOpen && (
+                                            <div className="absolute right-0 top-12 z-40 w-44 rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-xl p-1.5">
+                                                {privacyOptions.map((option) => (
+                                                    <button
+                                                        key={option.mode}
+                                                        onClick={() => { setPrivacyMode(option.mode); setIsPrivacyMenuOpen(false); }}
+                                                        className={"w-full text-left rounded-xl px-3 py-2 transition-all " + (privacyMode === option.mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/60 hover:text-slate-800")}
+                                                    >
+                                                        <div className="text-xs font-black">{option.label}</div>
+                                                        <div className="text-[10px] font-bold opacity-60 mt-0.5">{option.desc}</div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                     <button
                                         onClick={() => setIsSettingsOpen(true)}
                                         title="系统设置"
@@ -827,12 +1086,12 @@ const HTML_CONTENT = `
                         {/* Overview Stats */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                             {[
-                                { label: '在线节点', value: onlineCount + "/" + servers.length, icon: Icons.CheckCircle2, color: 'text-emerald-500', glow: 'glow-online' },
-                                { label: '当前离线', value: offlineCount, icon: Icons.XCircle, color: 'text-rose-500', glow: 'glow-offline' },
-                                { label: (availabilityRange === 'week' ? '7天' : '24H') + ' 可用率', value: avgUptime + "%", icon: Icons.BarChart3, color: 'text-blue-500', glow: 'bg-blue-500/20' },
-                                { label: '报警通知', value: notifyLabel, icon: Icons.AlertCircle, color: 'text-purple-500', glow: 'bg-purple-500/20' },
+                                { label: '在线节点', value: onlineCount + "/" + servers.length, icon: Icons.CheckCircle2, color: 'text-emerald-500', glow: 'glow-online', cardClass: 'overview-stat-online' },
+                                { label: '当前离线', value: offlineCount, icon: Icons.XCircle, color: 'text-rose-500', glow: 'glow-offline', cardClass: 'overview-stat-offline' },
+                                { label: (availabilityRange === 'week' ? '7天' : '24H') + ' 可用率', value: avgUptime + "%", icon: Icons.BarChart3, color: 'text-blue-500', glow: 'bg-blue-500/20', cardClass: 'overview-stat-uptime' },
+                                { label: '报警通知', value: notifyLabel, icon: Icons.AlertCircle, color: 'text-purple-500', glow: 'bg-purple-500/20', cardClass: 'overview-stat-alert' },
                             ].map((item, idx) => (
-                                <div key={idx} className="glass-panel p-6 rounded-[2rem] flex items-center gap-5 relative overflow-hidden group hover:-translate-y-0.5 transition-transform">
+                                <div key={idx} className={"overview-stat " + item.cardClass + " p-6 rounded-[2rem] flex items-center gap-5 relative overflow-hidden group hover:-translate-y-0.5 transition-transform"}>
                                     <div className={"absolute -right-4 -top-4 w-24 h-24 rounded-full blur-2xl " + item.glow}></div>
                                     <div className={"w-12 h-12 rounded-2xl bg-white/60 border border-white flex items-center justify-center shadow-sm relative z-10 " + item.color}>
                                         <item.icon className="w-6 h-6" />
@@ -847,11 +1106,11 @@ const HTML_CONTENT = `
 
                         {/* Action Bar: View Toggles & Search */}
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                            <div className="view-switcher flex p-1.5 rounded-2xl w-fit">
-                                <button onClick={() => setActiveTab('cards')} className={"px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 " + (activeTab === 'cards' ? 'view-switch-active' : 'text-slate-500 hover:text-slate-700')}>
+                            <div className="tab-nav w-fit">
+                                <button onClick={() => setActiveTab('cards')} className={"tab-btn " + (activeTab === 'cards' ? 'active' : '')}>
                                     <Icons.LayoutGrid className="w-4 h-4" /> 看板
                                 </button>
-                                <button onClick={() => setActiveTab('dashboard')} className={"px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 " + (activeTab === 'dashboard' ? 'view-switch-active' : 'text-slate-500 hover:text-slate-700')}>
+                                <button onClick={() => setActiveTab('dashboard')} className={"tab-btn " + (activeTab === 'dashboard' ? 'active' : '')}>
                                     <Icons.Activity className="w-4 h-4" /> 历史大盘
                                 </button>
                             </div>
@@ -919,20 +1178,20 @@ const HTML_CONTENT = `
                                     }[s.status] || { text: 'text-slate-600', bg: 'bg-slate-200/50', border: 'border-slate-200', dotClass: 'bg-slate-400', glowClass: 'bg-slate-300/20' };
 
                                     return (
-                                        <div key={s.id} className="group glass-panel p-6 rounded-[2rem] transition-all duration-300 flex flex-col hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] hover:-translate-y-1 relative overflow-hidden">
+                                        <div key={s.id} className="group server-card p-6 rounded-[2rem] transition-all duration-300 flex flex-col hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] hover:-translate-y-1 relative">
 
                                             {/* 高级卡片呼吸背光 */}
                                             <div className={"absolute -right-16 -top-16 w-48 h-48 rounded-full blur-[50px] pointer-events-none " + statusColors.glowClass}></div>
 
                                             {/* Header Row */}
-                                            <div className="flex justify-between items-start mb-6 relative z-10">
+                                            <div className={"server-card-head flex justify-between items-start server-card-head-" + (['online', 'offline', 'updating'].includes(s.status) ? s.status : 'unknown')}>
                                                 <div className="flex gap-4 items-center">
                                                     <div onClick={() => setIconModalTarget(s.id)} className="w-14 h-14 rounded-[1.2rem] bg-white/80 border border-white shadow-sm flex items-center justify-center text-slate-400 flex-shrink-0 group-hover:shadow-md transition-shadow cursor-pointer overflow-hidden" title="点击更换图标">
-                                                        {hideServerMeta ? <Icons.Server className="w-6 h-6" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-2" onError={(e) => {e.target.style.display='none'}} /> : <span className="text-2xl font-black text-slate-700">{s.name ? s.name[0] : '?'}</span>)}
+                                                        {hideServerName ? <Icons.Server className="w-6 h-6" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-2" onError={(e) => {e.target.style.display='none'}} /> : <span className="text-2xl font-black text-slate-700">{s.name ? s.name[0] : '?'}</span>)}
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <h3 className="font-black text-xl text-slate-800 truncate tracking-tight">{hideServerMeta ? 'Node Hidden' : s.name}</h3>
-                                                        <p className="text-[11px] text-slate-400 font-mono mt-1.5 font-semibold truncate bg-white/50 inline-block px-2 py-0.5 rounded-md border border-slate-100">{hideServerMeta ? 'https://****.****' : stripProtocol(s.url)}</p>
+                                                        <h3 className="font-black text-xl text-slate-800 truncate tracking-tight">{hideServerName ? 'Node Hidden' : s.name}</h3>
+                                                        <p className="text-[11px] text-slate-400 font-mono mt-1.5 font-semibold truncate bg-white/50 inline-block px-2 py-0.5 rounded-md border border-slate-100">{hideServerUrl ? 'https://****.****' : stripProtocol(s.url)}</p>
                                                     </div>
                                                 </div>
 
@@ -945,7 +1204,7 @@ const HTML_CONTENT = `
                                             </div>
 
                                             {/* 双栏指标区: 可用率与离线数 */}
-                                            <div className="grid grid-cols-2 gap-3 mb-6 relative z-10 bg-white/40 rounded-2xl p-4 border border-white shadow-[inset_0_1px_2px_rgba(255,255,255,0.8)]">
+                                            <div className="server-card-section server-card-metrics grid grid-cols-2 gap-3 mb-6 relative z-10 rounded-2xl p-4">
                                                 <div className="text-center relative">
                                                     <div className="text-[10px] text-slate-500 font-bold mb-1.5 uppercase tracking-widest flex justify-center items-center gap-1">
                                                         {(availabilityRange === 'week' ? '7天' : '24H')}可用率
@@ -973,7 +1232,7 @@ const HTML_CONTENT = `
 
                                             {/* 媒体库统计 */}
                                             {s.mediaStats && s.mediaStats.enabled && (
-                                                <div className="mt-auto bg-white/50 rounded-2xl p-4 border border-white relative z-10 shadow-sm">
+                                                <div className="server-card-section server-card-media rounded-2xl p-4 relative z-10">
                                                     <div className="flex items-center justify-between mb-3">
                                                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">资源库较昨日变化</span>
                                                         {s.mediaStats.lastError && <span className="text-[10px] text-rose-500 font-bold" title={s.mediaStats.lastError}>更新失败</span>}
@@ -1012,7 +1271,7 @@ const HTML_CONTENT = `
                                             )}
 
                                             {/* Footer */}
-                                            <div className="mt-5 flex justify-between items-center text-[10px] text-slate-400 font-bold relative z-10">
+                                            <div className="server-card-footer mt-5 flex justify-between items-center text-[10px] text-slate-400 font-bold relative z-10">
                                                 <div className="flex items-center gap-1.5 bg-white/60 px-2.5 py-1 rounded-full border border-white">
                                                     <Icons.Clock className="w-3 h-3" />
                                                     检测: {new Date(s.lastCheck).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -1040,22 +1299,31 @@ const HTML_CONTENT = `
                                 {sortedServers.map((s) => {
                                     const iconImg = getDisplayIcon(s);
                                     const stats = getAvailabilityStats(s);
+                                    const rowClass = ['online', 'offline', 'updating'].includes(s.status) ? s.status : 'unknown';
                                     return (
-                                        <div key={s.id} className="dashboard-row bg-slate-50/82 hover:bg-white/90 p-4 sm:p-5 rounded-2xl border border-slate-200/70 transition-all grid grid-cols-1 lg:grid-cols-[minmax(220px,0.38fr)_minmax(0,1fr)] lg:items-center gap-5">
-                                            <div className="flex items-center gap-4 sm:gap-5 min-w-0 relative">
+                                        <div key={s.id} className={"dashboard-row dashboard-row-" + rowClass + " p-4 sm:p-5 rounded-2xl transition-all grid grid-cols-1 xl:grid-cols-[minmax(240px,0.36fr)_minmax(0,1fr)] xl:items-center gap-4 sm:gap-5"}>
+                                            <div className="dashboard-node-panel flex items-center gap-4 sm:gap-5 min-w-0 relative rounded-2xl px-4 py-4">
                                                 <div className={"absolute -left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full blur-[15px] " + (s.status === 'online' ? 'glow-online' : s.status === 'offline' ? 'glow-offline' : 'bg-blue-400/20')}></div>
-                                                <div className="w-12 h-12 rounded-xl bg-white border border-slate-100 shadow-sm flex items-center justify-center font-black text-xl text-slate-600 z-10 overflow-hidden flex-shrink-0">
-                                                    {hideServerMeta ? <Icons.Server className="w-5 h-5" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-1.5" onError={(e) => {e.target.style.display='none'}} /> : s.name[0])}
+                                                <div className="w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center font-black text-xl text-slate-600 z-10 overflow-hidden flex-shrink-0">
+                                                    {hideServerName ? <Icons.Server className="w-5 h-5" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-1.5" onError={(e) => {e.target.style.display='none'}} /> : s.name[0])}
                                                 </div>
-                                                <div className="z-10 min-w-0">
-                                                    <div className="font-black text-slate-800 text-lg truncate tracking-tight">{hideServerMeta ? 'Node Hidden' : s.name}</div>
-                                                    <div className="text-[11px] font-bold text-slate-500 mt-1 flex items-center gap-2">
-                                                        <span className={"w-2 h-2 rounded-full flex-shrink-0 " + (s.status === 'online' ? 'dot-online' : s.status === 'offline' ? 'dot-offline' : 'dot-updating')}></span>
-                                                        {stats.uptime}% 可用率 · {stats.offline} 次离线
+                                                <div className="z-10 min-w-0 flex-1">
+                                                    <div className="font-black text-slate-800 text-lg truncate tracking-tight">{hideServerName ? 'Node Hidden' : s.name}</div>
+                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                                                        <span className={"inline-flex items-center gap-1 px-2.5 py-1 rounded-full border bg-white/65 backdrop-blur-sm " + (s.status === 'online' ? 'border-emerald-200 text-emerald-700' : s.status === 'offline' ? 'border-rose-200 text-rose-700' : 'border-blue-200 text-blue-700')}>
+                                                            <span className={"w-2 h-2 rounded-full flex-shrink-0 " + (s.status === 'online' ? 'dot-online' : s.status === 'offline' ? 'dot-offline' : 'dot-updating')}></span>
+                                                            {s.status === 'online' ? '运行中' : s.status === 'offline' ? '已掉线' : '测速中'}
+                                                        </span>
+                                                        <span className="px-2.5 py-1 rounded-full bg-white/55 border border-white text-slate-500">
+                                                            {stats.uptime}% 可用率
+                                                        </span>
+                                                        <span className="px-2.5 py-1 rounded-full bg-white/55 border border-white text-slate-500">
+                                                            {stats.offline} 次离线
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="status-chart-shell w-full min-w-0 min-h-[5.25rem] rounded-xl bg-slate-100/55 border border-slate-200/60 px-3 py-2 overflow-visible">
+                                            <div className="status-chart-shell w-full min-w-0 min-h-[5.25rem] rounded-[1.2rem] px-3 py-2 overflow-visible">
                                                 <StatusBars history={s.history || []} currentStatus={s.status} currentLatency={s.latency} />
                                             </div>
                                         </div>
@@ -1157,12 +1425,22 @@ const HTML_CONTENT = `
                                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
                                     {/* 快捷导入 */}
                                     <div className="bg-white/60 p-4 rounded-3xl border border-white shadow-sm">
-                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">快速粘贴解析</label>
+                                        <div className="flex items-center justify-between gap-3 mb-2">
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 block">快速粘贴解析</label>
+                                            <button
+                                                type="button"
+                                                onClick={applyQuickImportText}
+                                                disabled={!quickImportText.trim()}
+                                                className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed border border-blue-100 hover:bg-blue-100 text-[11px] font-black transition-colors"
+                                            >
+                                                立即识别
+                                            </button>
+                                        </div>
                                         <textarea
-                                            className="w-full h-20 glass-input p-3 rounded-2xl outline-none text-sm resize-none"
-                                            placeholder="粘贴包含用户名、密码、线路的文本..."
+                                            className="w-full h-28 glass-input p-3 rounded-2xl outline-none text-sm resize-none"
+                                            placeholder={"示例：\\n服务器：https://emby.example.com:443\\n用户名：demo_user\\n密码：demo_password"}
                                             value={quickImportText}
-                                            onChange={e=>applyQuickImportText(e.target.value)}
+                                            onChange={e=>setQuickImportText(e.target.value)}
                                         />
                                     </div>
 
