@@ -143,7 +143,7 @@ const HTML_CONTENT = `
         }, 3000);
     </script>
     <script type="text/babel" data-presets="react">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
         const APP_VERSION = '2026.05.16.1';
 
         const StatusBars = ({ history = [] }) => {
@@ -258,6 +258,8 @@ const HTML_CONTENT = `
             const [updateInfo, setUpdateInfo] = useState(null);
             const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
             const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
+            const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(60);
+            const autoRefreshTimerRef = useRef(null);
 
             // 核心修复 1：云端配置为准，禁止旧浏览器本地备份回写覆盖新配置
             const apiFetch = async (path, options = {}) => {
@@ -322,6 +324,42 @@ const HTML_CONTENT = `
                 media.addListener(applyTheme);
                 return () => media.removeListener(applyTheme);
             }, [themeMode]);
+            useEffect(() => {
+                const stopAutoRefreshTimer = () => {
+                    if (autoRefreshTimerRef.current) {
+                        clearInterval(autoRefreshTimerRef.current);
+                        autoRefreshTimerRef.current = null;
+                    }
+                };
+                const startAutoRefreshTimer = () => {
+                    if (document.hidden || autoRefreshTimerRef.current) return;
+                    autoRefreshTimerRef.current = setInterval(() => {
+                        let shouldReload = false;
+                        setAutoRefreshSeconds((prev) => {
+                            const next = prev - 1;
+                            if (next <= 0) {
+                                shouldReload = true;
+                                stopAutoRefreshTimer();
+                                return 60;
+                            }
+                            return next;
+                        });
+                        if (shouldReload) {
+                            setTimeout(() => location.reload(), 0);
+                        }
+                    }, 1000);
+                };
+                if (!isLoading) startAutoRefreshTimer();
+                const handleVisibility = () => {
+                    stopAutoRefreshTimer();
+                    if (!document.hidden && !isLoading) startAutoRefreshTimer();
+                };
+                document.addEventListener('visibilitychange', handleVisibility);
+                return () => {
+                    stopAutoRefreshTimer();
+                    document.removeEventListener('visibilitychange', handleVisibility);
+                };
+            }, [isLoading]);
 
             // 保存时带版本时间戳，后端会拒绝旧页面/旧请求覆盖新配置
             const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm) => {
@@ -371,6 +409,7 @@ const HTML_CONTENT = `
                     alert("测速接口异常");
                 } finally {
                     setIsRefreshing(false);
+                    setAutoRefreshSeconds(60);
                 }
             };
 
@@ -787,6 +826,10 @@ const HTML_CONTENT = `
                             <button onClick={() => manualPing(servers)} disabled={isRefreshing} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm text-white shadow-lg transition-all flex items-center gap-2">
                                 <span className={isRefreshing ? "animate-spin inline-block" : "inline-block"}>↻</span> {isRefreshing ? "测速中..." : "立刻测速"}
                             </button>
+                            <div className="px-4 py-2.5 rounded-xl border border-slate-700/70 bg-slate-800/40 text-slate-300 text-xs font-black shadow-sm flex items-center gap-2">
+                                <span>⏱</span>
+                                <span>自动刷新 {autoRefreshSeconds}s</span>
+                            </div>
                         </div>
                     </header>
 
