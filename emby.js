@@ -786,7 +786,7 @@ const HTML_CONTENT = `
             const currentThemeOption = themeOptions.find((item) => item.value === themeMode) || themeOptions[0];
 
             return (
-                <div className="max-w-7xl mx-auto p-4 md:p-10 relative">
+                <div className="w-full max-w-[1800px] mx-auto px-4 py-4 md:px-8 md:py-8 2xl:px-12 relative">
                     <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
                         <div>
                             <h1 className="text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 tracking-tighter">CLUSTER DASHBOARD</h1>
@@ -826,7 +826,7 @@ const HTML_CONTENT = `
                             <button onClick={() => manualPing(servers)} disabled={isRefreshing} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-sm text-white shadow-lg transition-all flex items-center gap-2">
                                 <span className={isRefreshing ? "animate-spin inline-block" : "inline-block"}>↻</span> {isRefreshing ? "测速中..." : "立刻测速"}
                             </button>
-                            <div className="px-4 py-2.5 rounded-xl border border-slate-700/70 bg-slate-800/40 text-slate-300 text-xs font-black shadow-sm flex items-center gap-2">
+                            <div className="px-4 py-2.5 rounded-xl border border-slate-700/70 bg-slate-800/40 text-slate-300 text-xs font-black shadow-sm flex items-center justify-center gap-2 min-w-[138px] shrink-0 tabular-nums">
                                 <span>⏱</span>
                                 <span>自动刷新 {autoRefreshSeconds}s</span>
                             </div>
@@ -911,7 +911,7 @@ const HTML_CONTENT = `
                                 ))}
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
 	                                {sortedServers.map((s, i) => {
 	                                    const iconImg = getDisplayIcon(s);
 	                                    const isOnline = s.status === 'online';
