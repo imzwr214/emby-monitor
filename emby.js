@@ -9,6 +9,12 @@ const HTML_CONTENT = `
     <meta charset="UTF-8">
     <title>Emby 集群探针大盘</title>
     <script>
+        (function() {
+            var storedTheme = localStorage.getItem('dashboard_theme') || 'system';
+            var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+            document.documentElement.dataset.theme = storedTheme === 'light' || (storedTheme === 'system' && prefersLight) ? 'light' : 'dark';
+            document.documentElement.dataset.themeMode = storedTheme;
+        })();
         function showBootError(message) {
             var el = document.getElementById('boot-error');
             var root = document.getElementById('root');
@@ -32,17 +38,89 @@ const HTML_CONTENT = `
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" onerror="showBootError('Babel CDN 加载失败')"></script>
     <script src="https://cdn.tailwindcss.com" onerror="showBootError('Tailwind CDN 加载失败')"></script>
     <style>
-        body { background: #0b0f1a; color: #e2e8f0; font-family: system-ui; margin: 0; }
+        html { background: #0b0f1a; }
+        body { background: #0b0f1a; color: #e2e8f0; font-family: system-ui; margin: 0; transition: background-color .2s ease, color .2s ease; }
         .glass-card { background: rgba(30, 41, 59, 0.45); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); }
         .glass-modal { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(28px); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); }
         .status-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; transition: all 0.3s; }
-        .online { background: #10b981; box-shadow: 0 0 12px #10b981; }
-        .offline { background: #ef4444; box-shadow: 0 0 12px #ef4444; }
+        .online { background: #10b981; box-shadow: 0 0 12px #10b981; animation: breathe-online 2.4s ease-in-out infinite; }
+        .offline { background: #ef4444; box-shadow: 0 0 12px #ef4444; animation: breathe-offline 1.8s ease-in-out infinite; }
         .unknown { background: #64748b; }
         .updating { background: #3b82f6; box-shadow: 0 0 12px #3b82f6; animation: pulse 1.5s infinite; }
+        .breath-online { animation: breathe-online 2.4s ease-in-out infinite; }
+        .breath-offline { animation: breathe-offline 1.8s ease-in-out infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes breathe-online {
+            0%, 100% { box-shadow: 0 0 8px rgba(16, 185, 129, .45), 0 0 0 0 rgba(16, 185, 129, .24); transform: scale(1); }
+            50% { box-shadow: 0 0 18px rgba(16, 185, 129, .85), 0 0 0 8px rgba(16, 185, 129, 0); transform: scale(1.08); }
+        }
+        @keyframes breathe-offline {
+            0%, 100% { box-shadow: 0 0 8px rgba(239, 68, 68, .50), 0 0 0 0 rgba(239, 68, 68, .28); transform: scale(1); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, .95), 0 0 0 9px rgba(239, 68, 68, 0); transform: scale(1.1); }
+        }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        html[data-theme="light"] { background: #f4f7fb; }
+        html[data-theme="light"] body { background: radial-gradient(circle at top left, rgba(59, 130, 246, .10), transparent 34rem), #f4f7fb; color: #0f172a; }
+        html[data-theme="light"] .glass-card { background: rgba(255, 255, 255, .86) !important; border-color: rgba(148, 163, 184, .32) !important; box-shadow: 0 16px 40px rgba(15, 23, 42, .08) !important; }
+        html[data-theme="light"] .glass-modal { background: rgba(255, 255, 255, .94) !important; border-color: rgba(148, 163, 184, .36) !important; box-shadow: 0 24px 60px rgba(15, 23, 42, .18) !important; }
+        html[data-theme="light"] .bg-slate-950,
+        html[data-theme="light"] .bg-slate-950\\/40,
+        html[data-theme="light"] .bg-slate-950\\/80,
+        html[data-theme="light"] .bg-slate-900,
+        html[data-theme="light"] .bg-slate-900\\/30,
+        html[data-theme="light"] .bg-slate-900\\/50,
+        html[data-theme="light"] .bg-slate-900\\/80,
+        html[data-theme="light"] .bg-slate-800,
+        html[data-theme="light"] .bg-slate-800\\/40,
+        html[data-theme="light"] .bg-slate-800\\/50,
+        html[data-theme="light"] .bg-slate-800\\/80 { background-color: rgba(255, 255, 255, .82) !important; }
+        html[data-theme="light"] .hover\\:bg-slate-800\\/50:hover,
+        html[data-theme="light"] .hover\\:bg-slate-800:hover,
+        html[data-theme="light"] .hover\\:bg-slate-700:hover { background-color: rgba(226, 232, 240, .82) !important; }
+        html[data-theme="light"] .bg-black\\/30 { background-color: rgba(248, 250, 252, .82) !important; }
+        html[data-theme="light"] .bg-black\\/80,
+        html[data-theme="light"] .bg-black\\/85 { background-color: rgba(15, 23, 42, .35) !important; }
+        html[data-theme="light"] .border-white\\/5,
+        html[data-theme="light"] .border-white\\/10,
+        html[data-theme="light"] .border-white\\/20,
+        html[data-theme="light"] .border-slate-800,
+        html[data-theme="light"] .border-slate-700,
+        html[data-theme="light"] .border-slate-700\\/50,
+        html[data-theme="light"] .border-slate-700\\/60,
+        html[data-theme="light"] .border-slate-700\\/70,
+        html[data-theme="light"] .border-slate-600 { border-color: rgba(148, 163, 184, .34) !important; }
+        html[data-theme="light"] .text-white,
+        html[data-theme="light"] .text-slate-100,
+        html[data-theme="light"] .text-slate-200,
+        html[data-theme="light"] .text-slate-300 { color: #0f172a !important; }
+        html[data-theme="light"] .text-slate-400,
+        html[data-theme="light"] .text-slate-500,
+        html[data-theme="light"] .text-slate-600,
+        html[data-theme="light"] .text-slate-700 { color: #64748b !important; }
+        html[data-theme="light"] .text-emerald-400,
+        html[data-theme="light"] .text-emerald-400\\/90 { color: #047857 !important; }
+        html[data-theme="light"] .text-amber-300,
+        html[data-theme="light"] .text-amber-400,
+        html[data-theme="light"] .text-amber-400\\/90 { color: #b45309 !important; }
+        html[data-theme="light"] .text-red-300,
+        html[data-theme="light"] .text-red-400,
+        html[data-theme="light"] .text-red-400\\/90 { color: #dc2626 !important; }
+        html[data-theme="light"] .bg-blue-600.text-white,
+        html[data-theme="light"] .bg-emerald-600.text-white,
+        html[data-theme="light"] .bg-red-600.text-white,
+        html[data-theme="light"] .bg-purple-600.text-white,
+        html[data-theme="light"] .bg-blue-500.text-white,
+        html[data-theme="light"] .bg-emerald-500.text-white { color: #ffffff !important; }
+        html[data-theme="light"] .bg-emerald-500.text-emerald-950,
+        html[data-theme="light"] .bg-emerald-500.text-slate-900,
+        html[data-theme="light"] .bg-amber-500.text-slate-950 { color: #052e16 !important; }
+        html[data-theme="light"] input,
+        html[data-theme="light"] textarea { color: #0f172a !important; caret-color: #2563eb; }
+        html[data-theme="light"] input::placeholder,
+        html[data-theme="light"] textarea::placeholder { color: #94a3b8 !important; }
+        html[data-theme="light"] .shadow-inner { box-shadow: inset 0 1px 2px rgba(15, 23, 42, .06) !important; }
+        html[data-theme="light"] ::-webkit-scrollbar-thumb { background: #cbd5e1; }
     </style>
 </head>
 <body>
@@ -163,6 +241,10 @@ const HTML_CONTENT = `
             const [iconSearch, setIconSearch] = useState('');
             const [hideServerMeta, setHideServerMeta] = useState(() => localStorage.getItem('hide_server_meta') === '1');
             const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
+            const [themeMode, setThemeMode] = useState(() => {
+                const stored = localStorage.getItem('dashboard_theme') || 'system';
+                return ['system', 'light', 'dark'].includes(stored) ? stored : 'system';
+            });
             const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
             const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
             const [quickImportText, setQuickImportText] = useState('');
@@ -221,6 +303,24 @@ const HTML_CONTENT = `
             useEffect(() => {
                 localStorage.setItem('availability_range', availabilityRange);
             }, [availabilityRange]);
+            useEffect(() => {
+                const applyTheme = () => {
+                    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+                    const resolved = themeMode === 'system' ? (prefersLight ? 'light' : 'dark') : themeMode;
+                    document.documentElement.dataset.theme = resolved;
+                    document.documentElement.dataset.themeMode = themeMode;
+                    localStorage.setItem('dashboard_theme', themeMode);
+                };
+                applyTheme();
+                const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+                if (!media || themeMode !== 'system') return;
+                if (media.addEventListener) {
+                    media.addEventListener('change', applyTheme);
+                    return () => media.removeEventListener('change', applyTheme);
+                }
+                media.addListener(applyTheme);
+                return () => media.removeListener(applyTheme);
+            }, [themeMode]);
 
             // 保存时带版本时间戳，后端会拒绝旧页面/旧请求覆盖新配置
             const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm) => {
@@ -638,6 +738,11 @@ const HTML_CONTENT = `
             const filteredIconEntries = iconSearchTerm
                 ? safeIconEntries.filter(([key, url]) => (key + ' ' + url).toLowerCase().includes(iconSearchTerm))
                 : safeIconEntries;
+            const themeOptions = [
+                { value: 'system', label: '跟随', icon: '◐' },
+                { value: 'light', label: '亮色', icon: '☀' },
+                { value: 'dark', label: '暗色', icon: '☾' }
+            ];
 
             return (
                 <div className="max-w-7xl mx-auto p-4 md:p-10 relative">
@@ -647,6 +752,19 @@ const HTML_CONTENT = `
                             <p className="text-[10px] text-slate-400 font-bold tracking-widest mt-1 uppercase">高可用探针监控网络</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                            <div className="flex bg-slate-800/40 border border-slate-700/50 p-1 rounded-xl shadow-inner">
+                                {themeOptions.map((item) => (
+                                    <button
+                                        key={item.value}
+                                        onClick={() => setThemeMode(item.value)}
+                                        className={"px-3 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 " + (themeMode === item.value ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200")}
+                                        title={"主题：" + item.label}
+                                    >
+                                        <span>{item.icon}</span>
+                                        <span>{item.label}</span>
+                                    </button>
+                                ))}
+                            </div>
                             <button onClick={() => setHideServerMeta(!hideServerMeta)} className={"px-5 py-2.5 rounded-xl font-bold text-sm border shadow-sm transition-all flex items-center gap-2 " + (hideServerMeta ? "bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-600" : "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700")}>
                                 <span>{hideServerMeta ? '👁️‍🗨️' : '👁️'}</span>
                                 {hideServerMeta ? '显示信息' : '隐藏信息'}
@@ -724,8 +842,8 @@ const HTML_CONTENT = `
                         <div className="animate-in fade-in duration-300">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
 	                                {[
-	                                    { label: '在线节点', value: onlineCount + "/" + servers.length, icon: "🟢", bg: 'bg-blue-500/10' },
-	                                    { label: '当前离线', value: offlineCount, icon: "🔴", bg: 'bg-red-500/10' },
+	                                    { label: '在线节点', value: onlineCount + "/" + servers.length, icon: "🟢", bg: 'bg-emerald-500/10 breath-online' },
+	                                    { label: '当前离线', value: offlineCount, icon: "🔴", bg: 'bg-red-500/10 breath-offline' },
 	                                    { label: availabilityLabel + '可用率', value: availabilityUptime, icon: "📈", bg: 'bg-emerald-500/10' },
 	                                    { label: '通知状态', value: notifyLabel, icon: "✈️", bg: 'bg-purple-500/10' },
 	                                ].map((item, idx) => (
@@ -1152,6 +1270,7 @@ export default {
   },
 
   formatNotifyTime(time) {
+      if (!time) return '未知';
       return new Date(time).toLocaleString('zh-CN', {
           timeZone: 'Asia/Shanghai',
           year: 'numeric',
@@ -1164,18 +1283,95 @@ export default {
       });
   },
 
+  formatNotifyDuration(startTime, endTime = Date.now()) {
+      if (!startTime) return '未知';
+      const minutes = Math.max(1, Math.floor((endTime - startTime) / 60000));
+      if (minutes < 60) return minutes + ' 分钟';
+      const hours = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      return hours + ' 小时' + (rest ? ' ' + rest + ' 分钟' : '');
+  },
+
+  formatNotifyLatency(latency) {
+      const value = Number(latency);
+      return Number.isFinite(value) && value > 0 ? Math.round(value) + 'ms' : '未知';
+  },
+
+  formatNotifyUptime(uptime) {
+      return uptime === '---' ? '样本不足' : uptime + '%';
+  },
+
+  maskNotifyUrl(value) {
+      try {
+          const url = new URL(value);
+          const labels = url.hostname.split('.').filter(Boolean);
+          const visible = labels[0] || url.hostname.slice(0, 6);
+          return url.protocol + '//' + visible + '.****.****';
+      } catch(e) {
+          const text = String(value || '');
+          if (!text) return '未知';
+          return text.slice(0, Math.min(12, text.length)) + '****';
+      }
+  },
+
+  getRecentHistoryStats(server, windowMs = 24 * 60 * 60 * 1000) {
+      const since = Date.now() - windowMs;
+      const history = Array.isArray(server.history)
+          ? server.history.filter((item) => item && typeof item === 'object' && item.time && item.time >= since)
+          : [];
+      const stats = history.reduce((acc, item) => {
+          const isOnline = item.status === 'online';
+          const latency = Number(item.latency);
+          if (isOnline) {
+              acc.online += 1;
+              if (Number.isFinite(latency) && latency > 0) {
+                  acc.latencyTotal += latency;
+                  acc.latencyCount += 1;
+              }
+          } else {
+              acc.offline += 1;
+          }
+          return acc;
+      }, { online: 0, offline: 0, latencyTotal: 0, latencyCount: 0 });
+      stats.offlineEvents = history.reduce((count, item, index) => {
+          if (item.status !== 'offline') return count;
+          const previous = history[index - 1];
+          return !previous || previous.status !== 'offline' ? count + 1 : count;
+      }, 0);
+      stats.total = stats.online + stats.offline;
+      stats.uptime = stats.total ? ((stats.online / stats.total) * 100).toFixed(1) : '---';
+      stats.avgLatency = stats.latencyCount ? Math.round(stats.latencyTotal / stats.latencyCount) : 0;
+      return stats;
+  },
+
   buildStatusMessage(server, previousStatus, nextStatus) {
-      const title = nextStatus === 'online' ? 'Emby 节点恢复在线' : 'Emby 节点离线';
-      const latency = nextStatus === 'online' && server.latency ? '\n延迟：' + server.latency + 'ms' : '';
-      const offlineDuration = nextStatus === 'offline' && server.offlineSince
-          ? '\n已连续离线：' + Math.max(1, Math.floor((server.lastCheck - server.offlineSince) / 60000)) + ' 分钟'
-          : '';
+      const historyStats = this.getRecentHistoryStats(server);
+      const offlineDuration = this.formatNotifyDuration(server.offlineSince, server.lastCheck || Date.now());
+      const checkedAt = this.formatNotifyTime(server.lastCheck);
+      const maskedUrl = this.maskNotifyUrl(server.url);
+
+      if (nextStatus === 'online') {
+          return [
+              '🟢 Emby 节点已恢复',
+              '',
+              '节点：' + server.name,
+              '地址：' + maskedUrl,
+              '状态：离线 -> 在线',
+              '离线时长：' + offlineDuration,
+              '恢复时间：' + checkedAt
+          ].join('\n');
+      }
       return [
-          title,
-          '名称：' + server.name,
-          '地址：' + server.url,
-          '状态：' + (previousStatus || 'unknown') + ' -> ' + nextStatus,
-          '时间：' + this.formatNotifyTime(server.lastCheck) + latency + offlineDuration
+          '🔴 Emby 节点持续离线',
+          '',
+          '节点：' + server.name,
+          '地址：' + maskedUrl,
+          '状态：离线',
+          '离线时长：已持续 ' + offlineDuration,
+          '离线时间：' + this.formatNotifyTime(server.offlineSince),
+          '',
+          '近24小时：离线 ' + historyStats.offlineEvents + ' 次',
+          '近期可用率：' + this.formatNotifyUptime(historyStats.uptime)
       ].join('\n');
   },
 
@@ -1934,7 +2130,10 @@ export default {
 	                  previouslySaved.offlineAlertSentAt
               ) {
                   notifyQueue.push({
-                      message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status),
+                      message: this.buildStatusMessage({
+                          ...mergedServer,
+                          offlineSince: previouslySaved.offlineSince || mergedServer.offlineSince
+                      }, oldStatus, mergedServer.status),
                       kind: 'online'
                   });
               }
