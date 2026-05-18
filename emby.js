@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.4';
+        const APP_VERSION = '2026.05.19.5';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2164,7 +2164,15 @@ const HTML_CONTENT = `
                                                 <div className="text-xs font-bold text-slate-500">
                                                     当前版本: {updateInfo ? updateInfo.currentVersion : APP_VERSION}
                                                     {updateInfo && updateInfo.hasUpdate && <span className="ml-3 text-amber-500">发现新版本: {updateInfo.latestVersion}</span>}
+                                                    {updateInfo && !updateInfo.hasUpdate && updateInfo.latestVersion && updateInfo.latestVersion !== 'unknown' && <span className="ml-3 text-emerald-600">远端版本: {updateInfo.latestVersion}</span>}
                                                 </div>
+                                                {updateInfo && (updateInfo.error || (Array.isArray(updateInfo.missing) && updateInfo.missing.length > 0) || updateInfo.sourceUrl) && (
+                                                    <div className="mt-3 space-y-1 text-[11px] font-bold text-slate-500">
+                                                        {updateInfo.error && <div className="text-rose-500">检查失败：{updateInfo.error}</div>}
+                                                        {Array.isArray(updateInfo.missing) && updateInfo.missing.length > 0 && <div>缺少自更新配置：{updateInfo.missing.join(', ')}</div>}
+                                                        {updateInfo.sourceUrl && <div className="truncate">更新源：{updateInfo.sourceUrl}</div>}
+                                                    </div>
+                                                )}
                                                 {updateInfo && updateInfo.hasUpdate && Array.isArray(updateInfo.releaseNotes) && updateInfo.releaseNotes.length > 0 && (
                                                     <div className="mt-3 space-y-1 text-[11px] font-bold text-slate-500">
                                                         {updateInfo.releaseNotes.map((note, index) => (
@@ -2180,7 +2188,7 @@ const HTML_CONTENT = `
                                                 <button onClick={() => checkForUpdate(true)} disabled={isCheckingUpdate || isApplyingUpdate} className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition-all shadow-sm">
                                                     {isCheckingUpdate ? '检查中...' : '检查更新'}
                                                 </button>
-                                                <button onClick={applyUpdate} disabled={!updateInfo || !updateInfo.hasUpdate || isApplyingUpdate} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-40 rounded-xl text-xs font-bold transition-all shadow-sm">
+                                                <button onClick={applyUpdate} disabled={!updateInfo || !updateInfo.hasUpdate || isApplyingUpdate || !updateInfo.canUpdate} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-40 rounded-xl text-xs font-bold transition-all shadow-sm">
                                                     {isApplyingUpdate ? '更新中...' : '一键更新'}
                                                 </button>
                                             </div>
@@ -2546,8 +2554,10 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.4',
+  APP_VERSION: '2026.05.19.5',
   APP_UPDATE_NOTES: [
+      '更新面板显示远端版本、更新源、错误信息和缺失的自更新配置。',
+      '更新版本解析只读取 Worker 对象版本，避免被页面模板版本干扰。',
       '公开页新增按 IP 去重的独立访问统计。',
       '更新检查改为带缓存穿透的 GitHub raw 拉取，避免刚推送的版本读到旧缓存。',
       '调整公开页按钮顺序，桌面端公开页移到添加服务器前面。',
@@ -3370,7 +3380,10 @@ export default {
   },
 
   extractAppVersion(source) {
-      const match = String(source || '').match(/APP_VERSION:\s*['"]([^'"]+)['"]/);
+      const text = String(source || '');
+      const exportMatch = text.match(/export\s+default\s*\{[\s\S]*?APP_VERSION:\s*['"]([^'"]+)['"]/);
+      if (exportMatch) return exportMatch[1];
+      const match = text.match(/APP_VERSION:\s*['"]([^'"]+)['"]/);
       return match ? match[1] : '';
   },
 
