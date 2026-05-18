@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.5';
+        const APP_VERSION = '2026.05.19.6';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2582,8 +2582,9 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.5',
+  APP_VERSION: '2026.05.19.6',
   APP_UPDATE_NOTES: [
+      '修复公开页隐藏媒体库数量设置没有写入新分享链接的问题。',
       '更新面板显示远端版本、更新源、错误信息和缺失的自更新配置。',
       '更新版本解析只读取 Worker 对象版本，避免被页面模板版本干扰。',
       '公开页新增按 IP 去重的独立访问统计。',
