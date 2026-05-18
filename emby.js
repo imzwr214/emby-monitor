@@ -418,11 +418,6 @@ const HTML_CONTENT = `
                 background: rgba(255,255,255,0.72);
             }
             .mobile-privacy-menu {
-                position: fixed;
-                left: 50%;
-                top: 50%;
-                right: auto;
-                transform: translate(-50%, -50%);
                 width: min(86vw, 340px);
                 z-index: 70;
                 padding: 18px;
@@ -443,7 +438,7 @@ const HTML_CONTENT = `
             .mobile-privacy-backdrop {
                 position: fixed;
                 inset: 0;
-                z-index: 65;
+                z-index: 0;
                 background: rgba(15,23,42,0.22);
                 backdrop-filter: blur(8px);
                 -webkit-backdrop-filter: blur(8px);
@@ -455,11 +450,11 @@ const HTML_CONTENT = `
                 height: 46px;
                 border-radius: 17px;
                 font-size: 12px;
+                font-weight: 900;
                 width: 100%;
+                text-align: center;
             }
-            .mobile-primary-btn {
-                font-size: 12px;
-            }
+            .mobile-primary-btn { font-size: 12px; }
             .mobile-primary-btn svg {
                 width: 15px;
                 height: 15px;
@@ -473,12 +468,10 @@ const HTML_CONTENT = `
             .mobile-refresh-btn span {
                 width: auto;
                 min-width: 0;
-                font-size: 0;
-            }
-            .mobile-refresh-btn span::after {
-                content: '刷新状态';
                 font-size: 12px;
-                font-weight: 900;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
                 line-height: 1;
             }
             .mobile-stats-strip {
@@ -1162,6 +1155,7 @@ const HTML_CONTENT = `
             useEffect(() => {
                 const onPointerDown = (event) => {
                     if (!isPrivacyMenuOpen) return;
+                    if (event.target && event.target.closest && event.target.closest('[data-privacy-dialog="true"]')) return;
                     if (privacyMenuRef.current && !privacyMenuRef.current.contains(event.target)) setIsPrivacyMenuOpen(false);
                 };
                 const onKeyDown = (event) => {
@@ -1457,8 +1451,8 @@ const HTML_CONTENT = `
                 setIsAddModalOpen(false); resetServerForm(); setActiveTab('cards');
                 await manualPing(updatedServers, savedUpdatedAt);
                 } catch(e) {
-                    console.error('保存节点失败', e);
-                    alert(e.message || '节点保存失败，请稍后重试');
+                    console.error('保存服务器失败', e);
+                    alert(e.message || '服务器保存失败，请稍后重试');
                 } finally {
                     setIsSavingServer(false);
                 }
@@ -1613,6 +1607,20 @@ const HTML_CONTENT = `
                                         >
                                             {privacyMode !== 'none' ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
                                         </button>
+                                        {isPrivacyMenuOpen && (
+                                            <div className="hidden md:block absolute right-0 top-12 z-40 w-44 rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-xl p-1.5">
+                                                {privacyOptions.map((option) => (
+                                                    <button
+                                                        key={option.mode}
+                                                        onClick={() => { setPrivacyMode(option.mode); setIsPrivacyMenuOpen(false); }}
+                                                        className={"w-full text-left rounded-xl px-3 py-2 transition-all " + (privacyMode === option.mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/60 hover:text-slate-800")}
+                                                    >
+                                                        <div className="text-xs font-black">{option.label}</div>
+                                                        <div className="text-[10px] font-bold opacity-60 mt-0.5">{option.desc}</div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <button
                                         onClick={() => setIsSettingsOpen(true)}
@@ -1625,7 +1633,7 @@ const HTML_CONTENT = `
 
                                 {/* 核心操作组 */}
                                 <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
-                                    <Icons.Plus className="w-4 h-4" /> 添加节点
+                                    <Icons.Plus className="w-4 h-4" /> 服务器
                                 </button>
                                 <button
                                     onClick={() => manualPing(servers)}
@@ -1633,7 +1641,7 @@ const HTML_CONTENT = `
                                     className="mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap"
                                 >
                                     <Icons.RefreshCw className={"w-4 h-4 " + (isRefreshing ? 'animate-spin' : '')} />
-                                    <span className="inline-flex items-center justify-center w-[7.5rem] tabular-nums">
+                                    <span className="inline-flex items-center justify-center tabular-nums">
                                         {isRefreshing ? '正在刷新...' : '刷新状态 (' + String(autoRefreshSeconds).padStart(2, '0') + 's)'}
                                     </span>
                                 </button>
@@ -1643,7 +1651,7 @@ const HTML_CONTENT = `
                         {/* Overview Stats */}
                         <div className="mobile-stats-strip grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                             {[
-                                { label: '在线节点', value: onlineCount + "/" + servers.length, icon: Icons.CheckCircle2, color: 'text-emerald-500', glow: 'glow-online', cardClass: 'overview-stat-online' },
+                                { label: '在线服务器', value: onlineCount + "/" + servers.length, icon: Icons.CheckCircle2, color: 'text-emerald-500', glow: 'glow-online', cardClass: 'overview-stat-online' },
                                 { label: '当前离线', value: offlineCount, icon: Icons.XCircle, color: 'text-rose-500', glow: 'glow-offline', cardClass: 'overview-stat-offline' },
                                 { label: (availabilityRange === 'week' ? '7天' : '24H') + ' 可用率', value: avgUptime + "%", icon: Icons.BarChart3, color: 'text-blue-500', glow: 'bg-blue-500/20', cardClass: 'overview-stat-uptime' },
                                 { label: '报警通知', value: notifyLabel, icon: Icons.AlertCircle, color: 'text-purple-500', glow: 'bg-purple-500/20', cardClass: 'overview-stat-alert' },
@@ -1704,7 +1712,7 @@ const HTML_CONTENT = `
                                     <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                     <input
                                         type="text"
-                                        placeholder="搜索节点名称或地址..."
+                                        placeholder="搜索服务器名称或地址..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         className="w-full pl-9 pr-4 py-2.5 rounded-[14px] text-sm glass-input text-slate-700 outline-none placeholder:text-slate-400"
@@ -1717,8 +1725,8 @@ const HTML_CONTENT = `
                         {filteredServers.length === 0 && (
                             <div className="py-20 flex flex-col items-center justify-center text-center">
                                 <div className="w-20 h-20 bg-slate-200/50 rounded-full flex items-center justify-center mb-4"><Icons.Search className="w-8 h-8 text-slate-400" /></div>
-                                <h3 className="text-lg font-bold text-slate-700 mb-1">未找到匹配的节点</h3>
-                                <p className="text-sm text-slate-500">尝试更换搜索词或清除筛选条件，或点击右上角添加新节点。</p>
+                                <h3 className="text-lg font-bold text-slate-700 mb-1">未找到匹配的服务器</h3>
+                                <p className="text-sm text-slate-500">尝试更换搜索词或清除筛选条件，或点击右上角添加新服务器。</p>
                             </div>
                         )}
 
@@ -1838,7 +1846,7 @@ const HTML_CONTENT = `
                                                 <div className="mobile-card-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => openEditServerModal(s)} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">编辑</button>
                                                     <button onClick={async () => {
-                                                        if(confirm('彻底删除该节点?')) {
+                                                        if(confirm('彻底删除该服务器?')) {
                                                             const n = servers.filter(x => x.id !== s.id);
                                                             await syncToCloud(n, iconLib);
                                                         }
@@ -1893,9 +1901,9 @@ const HTML_CONTENT = `
                     </div>
 
                     {isPrivacyMenuOpen && (
-                        <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <div data-privacy-dialog="true" className="md:hidden fixed inset-0 z-50 flex items-center justify-center p-4">
                             <div className="mobile-privacy-backdrop absolute inset-0" onClick={() => setIsPrivacyMenuOpen(false)}></div>
-                            <div className="mobile-privacy-menu relative border border-white/80 bg-white/80 backdrop-blur-xl shadow-2xl">
+                            <div className="mobile-privacy-menu relative z-10 border border-white/80 bg-white/80 backdrop-blur-xl shadow-2xl">
                                 <div className="mb-3 px-1">
                                     <div className="text-lg font-black text-slate-800">隐藏显示</div>
                                     <div className="text-xs font-bold text-slate-500 mt-1">选择需要隐藏的服务器信息</div>
@@ -2001,7 +2009,7 @@ const HTML_CONTENT = `
                         </div>
                     )}
 
-                    {/* 添加/编辑节点弹窗 (Add Node Modal) */}
+                    {/* 添加/编辑服务器弹窗 (Add Server Modal) */}
                     {isAddModalOpen && (
                         <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
                             <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIsAddModalOpen(false)}></div>
@@ -2012,7 +2020,7 @@ const HTML_CONTENT = `
 
                                 <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
                                     <Icons.Server className="w-6 h-6 text-emerald-500" />
-                                    {editingServerId ? '编辑探针节点' : '部署新探针'}
+                                    {editingServerId ? '编辑服务器' : '部署新服务器'}
                                 </h2>
 
                                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
@@ -2043,7 +2051,7 @@ const HTML_CONTENT = `
                                             <Icons.Link className="w-4 h-4 text-blue-500" />基础路由信息
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">节点标识 (别名)</label>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">服务器标识 (别名)</label>
                                             <input type="text" value={addForm.name} onChange={e=>setAddForm({...addForm, name: e.target.value})} placeholder="例如：US West Main" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
                                         </div>
                                         <div>
@@ -2099,7 +2107,7 @@ const HTML_CONTENT = `
                                     <Icons.X className="w-4 h-4" />
                                 </button>
                                 <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-2"><Icons.ImageIcon className="w-6 h-6 text-purple-500" />视觉资产选择</h2>
-                                <p className="text-xs text-slate-500 mb-6 font-bold">点击下方 Logo 为节点应用自定义图标。</p>
+                                <p className="text-xs text-slate-500 mb-6 font-bold">点击下方 Logo 为服务器应用自定义图标。</p>
 
                                 <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-4">
                                     <div className="relative flex-1">
@@ -2429,10 +2437,10 @@ export default {
       const maskedUrl = this.maskNotifyUrl(server.url);
 
       if (nextStatus === 'online') {
-          return ['🟢 Emby 节点已恢复', '', '节点：' + server.name, '地址：' + maskedUrl, '状态：离线 -> 在线', '离线时长：' + offlineDuration, '恢复时间：' + checkedAt].join('\n');
+          return ['🟢 Emby 服务器已恢复', '', '服务器：' + server.name, '地址：' + maskedUrl, '状态：离线 -> 在线', '离线时长：' + offlineDuration, '恢复时间：' + checkedAt].join('\n');
       }
       return [
-          '🔴 Emby 节点持续离线', '', '节点：' + server.name, '地址：' + maskedUrl, '状态：离线', '离线时长：已持续 ' + offlineDuration, '离线时间：' + this.formatNotifyTime(server.offlineSince), '',
+          '🔴 Emby 服务器持续离线', '', '服务器：' + server.name, '地址：' + maskedUrl, '状态：离线', '离线时长：已持续 ' + offlineDuration, '离线时间：' + this.formatNotifyTime(server.offlineSince), '',
           '近24小时：离线 ' + historyStats.offlineEvents + ' 次', '近期可用率：' + this.formatNotifyUptime(historyStats.uptime)
       ].join('\n');
   },
