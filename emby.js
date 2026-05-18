@@ -845,6 +845,23 @@ const HTML_CONTENT = `
                 grid-template-columns: 70px minmax(0,1fr) 64px;
                 gap: 7px;
             }
+            .mobile-form-sheet {
+                display: flex;
+                flex-direction: column;
+            }
+            .mobile-form-body {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                padding-right: 2px;
+            }
+            .mobile-form-footer {
+                flex: none;
+                margin-top: 18px;
+                padding-top: 18px;
+                border-top: 1px solid rgba(226,232,240,0.8);
+                background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.42));
+            }
             .mobile-icon-sheet {
                 height: calc(100vh - 18px);
             }
@@ -891,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.18.4';
+        const APP_VERSION = '2026.05.19.0';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2063,7 +2080,7 @@ const HTML_CONTENT = `
                     {isSettingsOpen && (
                         <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
                             <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIsSettingsOpen(false)}></div>
-                            <div className="mobile-sheet relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="mobile-sheet mobile-form-sheet relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
                                 <button onClick={() => setIsSettingsOpen(false)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors">
                                     <Icons.X className="w-4 h-4" />
                                 </button>
@@ -2071,7 +2088,7 @@ const HTML_CONTENT = `
                                     <Icons.Settings className="w-6 h-6 text-blue-500" />系统设置
                                 </h2>
 
-                                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                                <div className="mobile-form-body space-y-4">
                                     {/* 程序更新 */}
                                     <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
                                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2148,7 +2165,7 @@ const HTML_CONTENT = `
                     {isAddModalOpen && (
                         <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
                             <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIsAddModalOpen(false)}></div>
-                            <div className="mobile-sheet relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="mobile-sheet mobile-form-sheet relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
                                 <button onClick={() => setIsAddModalOpen(false)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors">
                                     <Icons.X className="w-4 h-4" />
                                 </button>
@@ -2158,7 +2175,7 @@ const HTML_CONTENT = `
                                     {editingServerId ? '编辑服务器' : '部署新服务器'}
                                 </h2>
 
-                                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                                <div className="mobile-form-body space-y-4">
                                     {/* 快捷导入 */}
                                     <div className="bg-white/60 p-4 rounded-3xl border border-white shadow-sm">
                                         <div className="flex items-center justify-between gap-3 mb-2">
@@ -2255,7 +2272,7 @@ const HTML_CONTENT = `
                                     </div>
                                 </div>
 
-                                <div className="mt-8">
+                                <div className="mobile-form-footer mt-8">
                                     <button onClick={handleSaveServer} disabled={isSavingServer || isRefreshing} className="w-full py-3.5 bg-slate-800 hover:bg-slate-900 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-2xl text-sm font-bold shadow-xl shadow-slate-900/10 transition-all flex justify-center items-center gap-2">
                                         {isSavingServer ? '保存中...' : (editingServerId ? '保存修改' : '确认部署')}
                                     </button>
@@ -2410,11 +2427,10 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.18.4',
+  APP_VERSION: '2026.05.19.0',
   APP_UPDATE_NOTES: [
-      '公开页和单卡片分享底部增加项目地址链接。',
-      '设置按钮增加更新红点提示，图标弹窗文案调整为图标选择。',
-      '离线通知中的探测地址改为统一脱敏并放到服务器信息下方。'
+      '移动端新增服务器弹窗改为内容区滚动，确认按钮固定显示。',
+      '备用地址增加后不会再挤出底部确认按钮。'
   ],
   UPDATE_REPO_OWNER: 'pototazhang',
   UPDATE_REPO_NAME: 'emby-js',
