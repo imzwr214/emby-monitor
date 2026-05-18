@@ -891,7 +891,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.18.3';
+        const APP_VERSION = '2026.05.18.4';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2410,11 +2410,11 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.18.3',
+  APP_VERSION: '2026.05.18.4',
   APP_UPDATE_NOTES: [
-      '降低手动刷新时的 Worker 子请求数量，避免触发 Cloudflare 单次调用限制。',
-      '状态探测缩减为 3 个核心 Emby 路径。',
-      '移除右上角倒计时自动刷新，保留手动刷新状态和资源数量。'
+      '公开页和单卡片分享底部增加项目地址链接。',
+      '设置按钮增加更新红点提示，图标弹窗文案调整为图标选择。',
+      '离线通知中的探测地址改为统一脱敏并放到服务器信息下方。'
   ],
   UPDATE_REPO_OWNER: 'pototazhang',
   UPDATE_REPO_NAME: 'emby-js',
