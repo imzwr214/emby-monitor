@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.0';
+        const APP_VERSION = '2026.05.19.1';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2438,8 +2438,10 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.0',
+  APP_VERSION: '2026.05.19.1',
   APP_UPDATE_NOTES: [
+      '调整公开页按钮顺序，桌面端公开页移到添加服务器前面。',
+      '主页面和公开页新增墙内社交平台分享提醒。',
       '移动端新增服务器弹窗改为内容区滚动，确认按钮固定显示。',
       '备用地址增加后不会再挤出底部确认按钮。'
   ],
