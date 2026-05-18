@@ -855,7 +855,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.17.1';
+        const APP_VERSION = '2026.05.18.1';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -1463,7 +1463,10 @@ const HTML_CONTENT = `
                     if (r.status === 401) { if (showAlert) alert('请先输入正确的管理 Token'); return; }
                     const data = await r.json();
                     setUpdateInfo(data);
-                    if (showAlert) alert(data.hasUpdate ? ('发现新版本：' + data.latestVersion) : '当前已经是最新版本');
+                    if (showAlert) {
+                        const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\\n\\n更新内容：\\n' + data.releaseNotes.map(note => '- ' + note).join('\\n') : '';
+                        alert(data.hasUpdate ? ('发现新版本：' + data.latestVersion + notes) : '当前已经是最新版本');
+                    }
                 } catch(e) {
                     if (showAlert) alert('检查更新失败：' + (e.message || '网络异常'));
                 } finally { setIsCheckingUpdate(false); }
@@ -1478,7 +1481,8 @@ const HTML_CONTENT = `
                     const r = await apiFetch('/api/update/apply', { method: 'POST' });
                     const data = await r.json().catch(() => ({}));
                     if (!r.ok || !data.ok) throw new Error(data.error || '更新失败');
-                    alert('更新完成，页面即将刷新');
+                    const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\\n\\n更新内容：\\n' + data.releaseNotes.map(note => '- ' + note).join('\\n') : '';
+                    alert('更新完成，页面即将刷新' + notes);
                     setTimeout(() => location.reload(), 1200);
                 } catch(e) { alert('更新失败：' + (e.message || 'Cloudflare API 调用异常')); } finally { setIsApplyingUpdate(false); }
             };
@@ -1893,6 +1897,16 @@ const HTML_CONTENT = `
                                                     当前版本: {updateInfo ? updateInfo.currentVersion : APP_VERSION}
                                                     {updateInfo && updateInfo.hasUpdate && <span className="ml-3 text-amber-500">发现新版本: {updateInfo.latestVersion}</span>}
                                                 </div>
+                                                {updateInfo && updateInfo.hasUpdate && Array.isArray(updateInfo.releaseNotes) && updateInfo.releaseNotes.length > 0 && (
+                                                    <div className="mt-3 space-y-1 text-[11px] font-bold text-slate-500">
+                                                        {updateInfo.releaseNotes.map((note, index) => (
+                                                            <div key={index} className="flex gap-2">
+                                                                <span className="text-amber-500">•</span>
+                                                                <span>{note}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="flex gap-2">
                                                 <button onClick={() => checkForUpdate(true)} disabled={isCheckingUpdate || isApplyingUpdate} className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition-all shadow-sm">
@@ -2103,7 +2117,11 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.17.1',
+  APP_VERSION: '2026.05.18.1',
+  APP_UPDATE_NOTES: [
+      '针对移动端重新设计界面布局，让手机端更像独立 App 使用体验。',
+      '添加 iPhone Safari 添加到主屏幕支持，包含 PWA manifest 和应用图标。'
+  ],
   UPDATE_REPO_OWNER: 'pototazhang',
   UPDATE_REPO_NAME: 'emby-js',
   UPDATE_BRANCH: 'main',
@@ -2218,10 +2236,12 @@ export default {
       try {
           const latestSource = await this.fetchLatestWorkerSource(env);
           const latestVersion = this.extractAppVersion(latestSource) || 'unknown';
+          const releaseNotes = this.extractUpdateNotes(latestSource);
           return this.json({
               currentVersion: this.APP_VERSION,
               latestVersion,
               hasUpdate: latestVersion !== 'unknown' && latestVersion !== this.APP_VERSION,
+              releaseNotes,
               canUpdate: this.canSelfUpdate(env),
               sourceUrl: this.getUpdateRawUrl(env),
               missing: this.getMissingUpdateEnv(env)
@@ -2231,6 +2251,7 @@ export default {
               currentVersion: this.APP_VERSION,
               latestVersion: 'unknown',
               hasUpdate: false,
+              releaseNotes: [],
               canUpdate: this.canSelfUpdate(env),
               error: e.message || 'Check update failed',
               missing: this.getMissingUpdateEnv(env)
@@ -2249,9 +2270,10 @@ export default {
           const latestSource = await this.fetchLatestWorkerSource(env);
           const latestVersion = this.extractAppVersion(latestSource);
           if (!latestVersion) return this.json({ ok: false, error: 'Latest source has no APP_VERSION' }, 422);
-          if (latestVersion === this.APP_VERSION) return this.json({ ok: true, updated: false, version: this.APP_VERSION });
+          const releaseNotes = this.extractUpdateNotes(latestSource);
+          if (latestVersion === this.APP_VERSION) return this.json({ ok: true, updated: false, version: this.APP_VERSION, releaseNotes });
           await this.deployWorkerSource(env, latestSource);
-          return this.json({ ok: true, updated: true, previousVersion: this.APP_VERSION, version: latestVersion });
+          return this.json({ ok: true, updated: true, previousVersion: this.APP_VERSION, version: latestVersion, releaseNotes });
       } catch(e) {
           return this.json({ ok: false, error: e.message || 'Update failed' }, 502);
       }
@@ -2425,6 +2447,18 @@ export default {
   extractAppVersion(source) {
       const match = String(source || '').match(/APP_VERSION:\s*['"]([^'"]+)['"]/);
       return match ? match[1] : '';
+  },
+
+  extractUpdateNotes(source) {
+      const match = String(source || '').match(/APP_UPDATE_NOTES:\s*\[([\s\S]*?)\]\s*,/);
+      if (!match) return [];
+      const notes = [];
+      const itemPattern = /['"]([^'"]+)['"]/g;
+      let item;
+      while ((item = itemPattern.exec(match[1])) && notes.length < 8) {
+          if (item[1]) notes.push(item[1]);
+      }
+      return notes;
   },
 
   isSafeWorkerSource(source) {
