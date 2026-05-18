@@ -879,7 +879,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.18.2';
+        const APP_VERSION = '2026.05.18.3';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -1101,8 +1101,6 @@ const HTML_CONTENT = `
             const [updateInfo, setUpdateInfo] = useState(null);
             const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
             const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
-            const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(60);
-            const autoRefreshTimerRef = useRef(null);
             const privacyMenuRef = useRef(null);
             const configRevisionRef = useRef('');
             const configUpdatedAtRef = useRef(0);
@@ -1171,31 +1169,6 @@ const HTML_CONTENT = `
             useEffect(() => { localStorage.setItem('availability_range', availabilityRange); }, [availabilityRange]);
             useEffect(() => { localStorage.setItem('availability_sort', availabilitySort); }, [availabilitySort]);
 
-            useEffect(() => {
-                const stopAutoRefreshTimer = () => {
-                    if (autoRefreshTimerRef.current) { clearInterval(autoRefreshTimerRef.current); autoRefreshTimerRef.current = null; }
-                };
-                const startAutoRefreshTimer = () => {
-                    if (document.hidden || autoRefreshTimerRef.current) return;
-                    autoRefreshTimerRef.current = setInterval(() => {
-                        let shouldReload = false;
-                        setAutoRefreshSeconds((prev) => {
-                            const next = prev - 1;
-                            if (next <= 0) { shouldReload = true; stopAutoRefreshTimer(); return 60; }
-                            return next;
-                        });
-                        if (shouldReload) setTimeout(() => location.reload(), 0);
-                    }, 1000);
-                };
-                if (!isLoading) startAutoRefreshTimer();
-                const handleVisibility = () => {
-                    stopAutoRefreshTimer();
-                    if (!document.hidden && !isLoading) startAutoRefreshTimer();
-                };
-                document.addEventListener('visibilitychange', handleVisibility);
-                return () => { stopAutoRefreshTimer(); document.removeEventListener('visibilitychange', handleVisibility); };
-            }, [isLoading]);
-
             const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
                 const serverById = new Map(servers.map(s => [s.id, s]));
                 const mergedServers = newServers.map((server) => {
@@ -1251,24 +1224,28 @@ const HTML_CONTENT = `
                 if (isRefreshing || !currentServers.length) return;
                 setIsRefreshing(true);
                 try {
-                    const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia) }) });
-                    if (!res.ok) throw new Error('测速接口异常');
-                    const updatedData = await res.json();
-                    setServers(updatedData.servers);
-                    setIconLib(updatedData.icons);
-                    setTelegramForm(updatedData.telegram || telegramForm);
-                    const nextUpdatedAt = Number(updatedData.updatedAt) || configUpdatedAtRef.current;
-                    const nextRevision = updatedData.revision || configRevisionRef.current;
-                    setConfigUpdatedAt(nextUpdatedAt);
-                    setConfigRevision(nextRevision);
-                    configUpdatedAtRef.current = nextUpdatedAt;
-                    configRevisionRef.current = nextRevision;
-                    setNotifyEnabled(Boolean(updatedData.notifyEnabled));
+                    let cursor = 0;
+                    let updatedData = null;
+                    do {
+                        const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia), cursor }) });
+                        if (!res.ok) throw new Error('测速接口异常');
+                        updatedData = await res.json();
+                        setServers(updatedData.servers);
+                        setIconLib(updatedData.icons);
+                        setTelegramForm(updatedData.telegram || telegramForm);
+                        const nextUpdatedAt = Number(updatedData.updatedAt) || configUpdatedAtRef.current;
+                        const nextRevision = updatedData.revision || configRevisionRef.current;
+                        setConfigUpdatedAt(nextUpdatedAt);
+                        setConfigRevision(nextRevision);
+                        configUpdatedAtRef.current = nextUpdatedAt;
+                        configRevisionRef.current = nextRevision;
+                        setNotifyEnabled(Boolean(updatedData.notifyEnabled));
+                        cursor = updatedData.nextCursor || 0;
+                    } while (updatedData && updatedData.hasMore);
                 } catch(e) {
                     alert("测速接口异常");
                 } finally {
                     setIsRefreshing(false);
-                    setAutoRefreshSeconds(60);
                 }
             };
 
@@ -1667,7 +1644,7 @@ const HTML_CONTENT = `
                                 >
                                     <Icons.RefreshCw className={"w-4 h-4 " + (isRefreshing ? 'animate-spin' : '')} />
                                     <span className="inline-flex items-center justify-center tabular-nums">
-                                        {isRefreshing ? '正在刷新...' : '刷新状态/资源 (' + String(autoRefreshSeconds).padStart(2, '0') + 's)'}
+                                        {isRefreshing ? '正在刷新...' : '刷新状态/资源'}
                                     </span>
                                 </button>
                             </div>
@@ -2191,11 +2168,11 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.18.2',
+  APP_VERSION: '2026.05.18.3',
   APP_UPDATE_NOTES: [
-      '修复启用媒体库资源统计时可能影响在线状态判定的问题。',
-      '右上角刷新状态按钮会同时强制刷新媒体库资源数量。',
-      '媒体库资源统计失败时，点击错误标签可查看具体原因。'
+      '降低手动刷新时的 Worker 子请求数量，避免触发 Cloudflare 单次调用限制。',
+      '状态探测缩减为 3 个核心 Emby 路径。',
+      '移除右上角倒计时自动刷新，保留手动刷新状态和资源数量。'
   ],
   UPDATE_REPO_OWNER: 'pototazhang',
   UPDATE_REPO_NAME: 'emby-js',
@@ -2301,7 +2278,7 @@ export default {
 
       const requestBody = await request.json().catch(() => ({}));
       const currentConfig = await this.loadConfig(env);
-      const updatedConfig = await this.runProbeLogic(env, currentConfig, { forceMedia: Boolean(requestBody.forceMedia) });
+      const updatedConfig = await this.runProbeLogic(env, currentConfig, { forceMedia: Boolean(requestBody.forceMedia), cursor: Number(requestBody.cursor) || 0 });
       return this.json({ ...updatedConfig, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
     }
 
@@ -2866,7 +2843,7 @@ export default {
 
   async probeEmbyServer(server, targetUrl) {
       const headers = { 'Accept': 'application/json,text/plain,*/*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36' };
-      const paths = ['/emby/System/Info/Public', '/System/Info/Public', '/emby/Users/Public', '/emby/web/index.html', '/web/index.html'];
+      const paths = ['/emby/System/Info/Public', '/System/Info/Public', '/emby/Users/Public'];
       const start = Date.now();
       for (const path of paths) {
           try {
@@ -2912,8 +2889,12 @@ export default {
   async runProbeLogic(env, config, options = {}) {
       if (!config || !config.servers || config.servers.length === 0) return config;
       const forceMedia = Boolean(options.forceMedia);
+      const batchSize = forceMedia ? 4 : config.servers.length;
+      const cursor = forceMedia ? Math.max(0, Number(options.cursor) || 0) : 0;
+      const batchEnd = Math.min(config.servers.length, cursor + batchSize);
+      const batchIds = new Set(config.servers.slice(cursor, batchEnd).map((s) => s.id));
 
-      const probePromises = config.servers.map(async (s) => {
+      const probePromises = config.servers.filter((s) => batchIds.has(s.id)).map(async (s) => {
           const previousStatus = s.status;
           s.totalChecks = (s.totalChecks || 0) + 1;
           s.history = this.normalizeHistory(s.history, s.lastCheck);
@@ -2990,6 +2971,10 @@ export default {
               return mergedServer;
           })
       };
+      if (forceMedia) {
+          mergedConfig.nextCursor = batchEnd < baseConfig.servers.length ? batchEnd : 0;
+          mergedConfig.hasMore = batchEnd < baseConfig.servers.length;
+      }
       if (notifyQueue.length) {
           console.log('[notify] queue prepared', notifyQueue.map((item) => ({ kind: item.kind, serverId: item.serverId || null, lastCheck: item.lastCheck || null })));
       }
