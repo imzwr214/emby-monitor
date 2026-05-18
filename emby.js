@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.2';
+        const APP_VERSION = '2026.05.19.3';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -1139,6 +1139,8 @@ const HTML_CONTENT = `
             const [publicShareLink, setPublicShareLink] = useState('');
             const [publicShareExpiresAt, setPublicShareExpiresAt] = useState(0);
             const [isGeneratingPublicShare, setIsGeneratingPublicShare] = useState(false);
+            const [publicShareStats, setPublicShareStats] = useState([]);
+            const [isLoadingPublicShareStats, setIsLoadingPublicShareStats] = useState(false);
             const [cardShareLinks, setCardShareLinks] = useState({});
             const [generatingCardShareId, setGeneratingCardShareId] = useState(null);
             const [toastMessage, setToastMessage] = useState('');
@@ -1204,6 +1206,9 @@ const HTML_CONTENT = `
                 const timer = setTimeout(() => setToastMessage(''), 1800);
                 return () => clearTimeout(timer);
             }, [toastMessage]);
+            useEffect(() => {
+                if (shareModalTarget === 'public') fetchPublicShareStats();
+            }, [shareModalTarget]);
             useEffect(() => {
                 const onPointerDown = (event) => {
                     if (!isPrivacyMenuOpen) return;
@@ -1312,6 +1317,10 @@ const HTML_CONTENT = `
             const getSafeIconLib = () => (typeof iconLib === 'object' && iconLib !== null && !Array.isArray(iconLib)) ? iconLib : {};
             const getShareBaseUrl = () => window.location.origin;
             const getPublicUrl = () => publicShareLink || (getShareBaseUrl() + '/public');
+            const formatStatTime = (value) => {
+                const time = Number(value) || 0;
+                return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '--';
+            };
             const copyText = async (text, label = '内容') => {
                 try {
                     await navigator.clipboard.writeText(text);
@@ -1338,10 +1347,25 @@ const HTML_CONTENT = `
                     if (!res.ok || !data.ok || !data.url) throw new Error(data.error || '生成公开链接失败');
                     setPublicShareLink(data.url);
                     setPublicShareExpiresAt(Number(data.expiresAt) || 0);
+                    await fetchPublicShareStats();
                 } catch(e) {
                     alert(e.message || '生成公开链接失败');
                 } finally {
                     setIsGeneratingPublicShare(false);
+                }
+            };
+
+            const fetchPublicShareStats = async () => {
+                setIsLoadingPublicShareStats(true);
+                try {
+                    const res = await apiFetch('/api/public/share-stats');
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !Array.isArray(data.items)) throw new Error(data.error || '读取公开页统计失败');
+                    setPublicShareStats(data.items);
+                } catch(e) {
+                    console.error(e);
+                } finally {
+                    setIsLoadingPublicShareStats(false);
                 }
             };
 
@@ -2316,24 +2340,65 @@ const HTML_CONTENT = `
 
                                     <div className="space-y-4">
                                         {!targetServer && (
-                                        <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div className="text-slate-700 font-bold">公开大盘链接</div>
-                                                {!publicShareLink && <button onClick={generatePublicShareLink} disabled={isGeneratingPublicShare} className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100 text-[11px] font-black transition-colors flex items-center gap-1.5 disabled:opacity-50">
-                                                    <Icons.Share2 className="w-3.5 h-3.5" /> {isGeneratingPublicShare ? '生成中...' : '生成'}
-                                                </button>}
+                                        <React.Fragment>
+                                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="text-slate-700 font-bold">公开大盘链接</div>
+                                                    <button onClick={generatePublicShareLink} disabled={isGeneratingPublicShare} className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100 text-[11px] font-black transition-colors flex items-center gap-1.5 disabled:opacity-50">
+                                                        <Icons.Share2 className="w-3.5 h-3.5" /> {isGeneratingPublicShare ? '生成中...' : (publicShareLink ? '重新生成' : '生成')}
+                                                    </button>
+                                                </div>
+                                                <div className="grid grid-cols-[1fr_44px] gap-2">
+                                                    <input readOnly value={publicUrl} className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono outline-none" />
+                                                    <button onClick={() => copyText(publicUrl, '公开大盘链接')} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
+                                                        <Icons.Copy className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                                <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between gap-3">
+                                                    <span>有效期：1 小时</span>
+                                                    {publicShareExpiresAt && <span>{shareExpired ? '已过期' : '过期时间：' + shareExpiresText}</span>}
+                                                </div>
                                             </div>
-                                            <div className="grid grid-cols-[1fr_44px] gap-2">
-                                                <input readOnly value={publicUrl} className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono outline-none" />
-                                                <button onClick={() => copyText(publicUrl, '公开大盘链接')} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
-                                                    <Icons.Copy className="w-4 h-4" />
-                                                </button>
+
+                                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="text-slate-700 font-bold">公开页独立访问统计</div>
+                                                    <button onClick={fetchPublicShareStats} disabled={isLoadingPublicShareStats} className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 text-[11px] font-black transition-colors disabled:opacity-50">
+                                                        {isLoadingPublicShareStats ? '刷新中...' : '刷新'}
+                                                    </button>
+                                                </div>
+                                                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                                                    {publicShareStats.length === 0 && (
+                                                        <div className="py-8 text-center text-xs font-bold text-slate-400">
+                                                            {isLoadingPublicShareStats ? '正在读取统计...' : '暂无公开页记录'}
+                                                        </div>
+                                                    )}
+                                                    {publicShareStats.map((item) => {
+                                                        const itemExpired = Number(item.expiresAt) > 0 && Date.now() >= Number(item.expiresAt);
+                                                        const itemUrl = item.url || (getShareBaseUrl() + '/public/' + item.token);
+                                                        return (
+                                                            <div key={item.token} className="rounded-2xl bg-white/70 border border-white p-3 space-y-2">
+                                                                <div className="flex items-center justify-between gap-3">
+                                                                    <div className="text-sm font-black text-slate-700 tabular-nums">{Number(item.views) || 0} 个独立 IP</div>
+                                                                    <span className={"px-2 py-1 rounded-full text-[10px] font-black " + (itemExpired ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-600")}>{itemExpired ? '已过期' : '有效中'}</span>
+                                                                </div>
+                                                                <div className="text-[11px] font-bold text-slate-500 space-y-1">
+                                                                    <div>生成：{formatStatTime(item.createdAt)}</div>
+                                                                    <div>过期：{formatStatTime(item.expiresAt)}</div>
+                                                                    <div>最后访问：{formatStatTime(item.lastViewedAt)}</div>
+                                                                </div>
+                                                                <div className="grid grid-cols-[1fr_38px] gap-2">
+                                                                    <input readOnly value={itemUrl} className="w-full glass-input px-3 py-2 rounded-xl text-[11px] font-mono outline-none" />
+                                                                    <button onClick={() => copyText(itemUrl, '公开页链接')} className="w-[38px] h-[38px] flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
+                                                                        <Icons.Copy className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
-                                            <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between gap-3">
-                                                <span>有效期：1 小时</span>
-                                                {publicShareExpiresAt && <span>{shareExpired ? '已过期' : '过期时间：' + shareExpiresText}</span>}
-                                            </div>
-                                        </div>
+                                        </React.Fragment>
                                         )}
 
                                         {targetServer && (
@@ -2438,8 +2503,9 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.2',
+  APP_VERSION: '2026.05.19.3',
   APP_UPDATE_NOTES: [
+      '公开页新增按 IP 去重的独立访问统计。',
       '更新检查改为带缓存穿透的 GitHub raw 拉取，避免刚推送的版本读到旧缓存。',
       '调整公开页按钮顺序，桌面端公开页移到添加服务器前面。',
       '主页面和公开页新增墙内社交平台分享提醒。',
@@ -2493,6 +2559,7 @@ export default {
       const token = url.pathname.split('/').pop();
       const tokenRecord = await this.getPublicShareToken(env, token);
       if (!tokenRecord || tokenRecord.expiresAt <= Date.now()) return new Response('Link expired', { status: 410, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+      await this.recordPublicShareView(env, token, tokenRecord, request);
       const config = await this.loadConfig(env);
       return new Response(this.buildPublicPage(config), {
           headers: {
@@ -2507,10 +2574,16 @@ export default {
       if (auth) return auth;
       const token = this.generatePublicShareToken();
       const expiresAt = Date.now() + (60 * 60 * 1000);
-      await this.storePublicShareToken(env, token, expiresAt);
+      await this.storePublicShareToken(env, token, expiresAt, { origin: url.origin || '' });
       const baseUrl = url.origin || '';
       const publicUrl = baseUrl.replace(/\/$/, '') + '/public/' + token;
       return this.json({ ok: true, token, url: publicUrl, expiresAt });
+    }
+
+    if (url.pathname === '/api/public/share-stats' && request.method === 'GET') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+      return this.json({ ok: true, items: await this.listPublicShareStats(env, url.origin || '') });
     }
 
     if (url.pathname === '/api/card/share-token' && request.method === 'POST') {
@@ -2793,9 +2866,18 @@ export default {
       return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   },
 
-  async storePublicShareToken(env, token, expiresAt) {
+  async storePublicShareToken(env, token, expiresAt, data = {}) {
       if (!env.EMBY_DB) return false;
-      await env.EMBY_DB.put('public_share_token:' + token, JSON.stringify({ expiresAt: Number(expiresAt) || 0 }));
+      const now = Date.now();
+      const record = {
+          token: String(token || ''),
+          createdAt: Number(data.createdAt) || now,
+          expiresAt: Number(expiresAt) || 0,
+          origin: String(data.origin || ''),
+          views: Number(data.views) || 0,
+          lastViewedAt: Number(data.lastViewedAt) || 0
+      };
+      await env.EMBY_DB.put('public_share_token:' + token, JSON.stringify(record));
       return true;
   },
 
@@ -2808,6 +2890,71 @@ export default {
       } catch(e) {
           return null;
       }
+  },
+
+  async hashPublicShareVisitor(value) {
+      const text = String(value || '').trim();
+      if (!text) return '';
+      if (!globalThis.crypto || !globalThis.crypto.subtle) return text.replace(/[^a-zA-Z0-9_.:-]/g, '').slice(0, 120);
+      const input = new TextEncoder().encode(text);
+      const digest = await globalThis.crypto.subtle.digest('SHA-256', input);
+      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  },
+
+  getPublicShareVisitorId(request) {
+      const cfIp = request.headers.get('CF-Connecting-IP');
+      if (cfIp) return cfIp.trim();
+      const forwarded = request.headers.get('X-Forwarded-For');
+      if (forwarded) return forwarded.split(',')[0].trim();
+      const realIp = request.headers.get('X-Real-IP');
+      if (realIp) return realIp.trim();
+      return '';
+  },
+
+  async recordPublicShareView(env, token, tokenRecord, request) {
+      if (!env.EMBY_DB || !token) return tokenRecord;
+      const now = Date.now();
+      const visitorId = this.getPublicShareVisitorId(request);
+      const visitorHash = await this.hashPublicShareVisitor(visitorId || 'unknown');
+      const visitorKey = 'public_share_visitor:' + token + ':' + visitorHash;
+      const seen = await env.EMBY_DB.get(visitorKey);
+      const nextRecord = { ...(tokenRecord || {}), token: String(token), lastViewedAt: now };
+      if (!seen) {
+          nextRecord.views = (Number(nextRecord.views) || 0) + 1;
+          await env.EMBY_DB.put(visitorKey, JSON.stringify({ firstViewedAt: now }), { expirationTtl: 90 * 24 * 60 * 60 });
+      }
+      await env.EMBY_DB.put('public_share_token:' + token, JSON.stringify(nextRecord));
+      return nextRecord;
+  },
+
+  async listPublicShareStats(env, origin = '') {
+      if (!env.EMBY_DB || !env.EMBY_DB.list) return [];
+      const keys = [];
+      let cursor = undefined;
+      do {
+          const listed = await env.EMBY_DB.list({ prefix: 'public_share_token:', cursor });
+          if (listed && Array.isArray(listed.keys)) keys.push(...listed.keys);
+          cursor = listed && listed.list_complete === false ? listed.cursor : undefined;
+      } while (cursor);
+      const items = [];
+      for (const key of keys) {
+          const name = key && key.name ? key.name : '';
+          const raw = name ? await env.EMBY_DB.get(name) : null;
+          if (!raw) continue;
+          try {
+              const data = JSON.parse(raw);
+              const token = String(data.token || name.replace('public_share_token:', ''));
+              items.push({
+                  token,
+                  url: (data.origin || origin || '').replace(/\/$/, '') + '/public/' + token,
+                  createdAt: Number(data.createdAt) || 0,
+                  expiresAt: Number(data.expiresAt) || 0,
+                  views: Number(data.views) || 0,
+                  lastViewedAt: Number(data.lastViewedAt) || 0
+              });
+          } catch(e) {}
+      }
+      return items.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
   },
 
   async storeCardShareToken(env, token, data) {
