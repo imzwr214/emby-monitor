@@ -26,7 +26,7 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 - 第三方图标库导入，支持从 JSON 或文本中提取图片链接。
 - 图标库搜索，可按图标名称或图片链接筛选。
 - Cloudflare KV 持久化配置，不依赖本地浏览器存储。
-- 管理 Token 保护，避免公开面板被他人修改配置。
+- 管理 Token 保护，后台默认锁定，必须显式配置 `ADMIN_TOKEN` 才能进入和修改配置。
 - 版本检测和可选一键更新。配置 Cloudflare API Token 后，可在页面里直接更新到仓库最新版。
 
 ## 项目结构
@@ -73,16 +73,20 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 
 ### 设置环境变量
 
-在 Worker 的 **Settings** -> **Variables** 中添加环境变量。推荐至少设置 `ADMIN_TOKEN`。
+在 Worker 的 **Settings** -> **Variables** 中添加环境变量。`ADMIN_TOKEN` 必填。
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `ADMIN_TOKEN` | 推荐 | 管理密码。设置后，页面会要求输入 Token，所有配置接口都会校验。 |
+| `ADMIN_TOKEN` | 必填 | 管理密码。未设置时后台会直接锁定，所有管理接口都会返回 `403`。 |
 | `TG_NOTIFY` | 可选 | 是否默认启用 Telegram 通知，可填 `1`、`true`、`yes` 或 `on`。 |
 | `TG_BOT_TOKEN` | 可选 | Telegram Bot Token。也可以在页面里配置。 |
 | `TG_CHAT_ID` | 可选 | Telegram Chat ID。也可以在页面里配置。 |
+| `PUBLIC_SHARE_WILDCARD_DOMAIN` | 可选 | 旧版分享域名配置，当前版本不再使用。 |
+| `PUBLIC_SHARE_BASE_URL` | 可选 | 旧版分享域名配置，当前版本不再使用。 |
 
 页面里保存的 Telegram 配置优先级高于环境变量。
+
+公开分享不再依赖单独域名。页面里的“公开页”会生成当前 Worker 域名下的 `/public/<token>` 链接，单服务器“分享”会生成 `/card/<token>.svg` 链接。两者都是一次生成一个新的 token，默认有效期 1 小时，过期后旧链接失效。它们只暴露公开内容，不包含后台地址、管理 token、Emby 凭据或 KV 配置。
 
 ### 可选：开启页面一键更新
 
@@ -143,12 +147,14 @@ crons = ["* * * * *"]
 ## 使用方式
 
 1. 打开 Worker 访问地址。
-2. 如果设置了 `ADMIN_TOKEN`，按提示输入 Token。
+2. 必须先在 Cloudflare Worker 环境变量里设置 `ADMIN_TOKEN`，否则后台会直接锁定。
 3. 点击“部署节点”，添加 Emby 地址、端口和别名。
 4. 需要媒体库统计时，勾选“启用媒体库资源统计”，填写 Emby 用户名和密码。
 5. 点击“立刻测速”可以手动刷新所有节点状态。
 6. 在“库设置”里配置 Telegram 通知和第三方图标库。
-7. 如果配置了页面一键更新，也可以在“库设置”里检查新版本并更新。
+7. 点击“公开页”可以生成只读公开大盘链接。
+8. 点击单个服务器的“分享”可以生成该服务器卡片的 SVG 快照链接。
+9. 如果配置了页面一键更新，也可以在“库设置”里检查新版本并更新。
 
 ## 通知策略
 
@@ -183,7 +189,7 @@ crons = ["* * * * *"]
 
 ## 安全说明
 
-- 建议设置 `ADMIN_TOKEN`。
+- `ADMIN_TOKEN` 必须设置。
 - 如果开启一键更新，必须设置 `ADMIN_TOKEN`，并妥善保管 `CF_API_TOKEN`。
 - 不要把 Telegram Bot Token、Emby 用户名和密码提交到仓库。
 - Worker 会拒绝访问内网地址、localhost 和常见私有网段，避免被用作内网探测代理。
