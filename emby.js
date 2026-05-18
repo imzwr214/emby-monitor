@@ -7,6 +7,14 @@ const HTML_CONTENT = `
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#dce8fb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Emby 探针">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/app-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/app-icon.svg">
     <title>Emby 集群探针大盘</title>
     <script>
         function showBootError(message) {
@@ -319,6 +327,509 @@ const HTML_CONTENT = `
             border-color: rgba(139,92,246,0.24);
         }
         .overview-stat-alert:hover { box-shadow: 0 12px 36px rgba(139,92,246,0.16), 0 1.5px 0 rgba(255,255,255,0.9) inset; }
+        .mobile-control-row { display: contents; }
+        @media (max-width: 640px) {
+            body { -webkit-tap-highlight-color: transparent; }
+            .app-shell {
+                min-height: 100svh;
+                padding-top: env(safe-area-inset-top);
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+            .orb { filter: blur(58px); opacity: 0.42; }
+            .orb-1 { width: 360px; height: 360px; top: -10%; left: -35%; }
+            .orb-2 { width: 320px; height: 320px; top: 24%; right: -38%; }
+            .orb-3 { width: 300px; height: 300px; bottom: 6%; left: 18%; }
+            .orb-4 { display: none; }
+            .mobile-page {
+                padding: 14px 14px calc(92px + env(safe-area-inset-bottom));
+                max-width: none;
+            }
+            .mobile-header {
+                margin-bottom: 14px;
+                gap: 12px;
+                padding: 13px;
+                border-radius: 28px;
+                background:
+                    linear-gradient(180deg, rgba(255,255,255,0.62), rgba(255,255,255,0.36)),
+                    radial-gradient(circle at 12% 18%, rgba(96,165,250,0.22), transparent 36%),
+                    radial-gradient(circle at 88% 82%, rgba(16,185,129,0.16), transparent 38%);
+                backdrop-filter: blur(24px) saturate(175%);
+                -webkit-backdrop-filter: blur(24px) saturate(175%);
+                border: 1px solid rgba(255,255,255,0.82);
+                box-shadow: 0 14px 36px rgba(80,100,160,0.13), 0 1px 0 rgba(255,255,255,0.95) inset;
+            }
+            .mobile-title-row {
+                width: 100%;
+                display: block;
+            }
+            .mobile-title-row .brand-icon-shell {
+                width: 46px;
+                height: 46px;
+                border-radius: 17px;
+                flex-shrink: 0;
+            }
+            .mobile-title-row .brand-icon-shell svg {
+                width: 24px;
+                height: 24px;
+            }
+            .mobile-title-row h1 {
+                font-size: 1.42rem;
+                line-height: 1.12;
+                min-width: 0;
+                gap: 10px;
+            }
+            .mobile-title-row .brand-title {
+                white-space: normal;
+                overflow-wrap: anywhere;
+            }
+            .mobile-subtitle {
+                margin-top: 6px;
+                font-size: 9px;
+                letter-spacing: 0.14em;
+                padding-left: 56px;
+            }
+            .mobile-actions {
+                width: 100%;
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 9px;
+                align-items: center;
+                padding: 9px;
+                border-radius: 23px;
+                background: rgba(255,255,255,0.36);
+                border: 1px solid rgba(255,255,255,0.76);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.86);
+            }
+            .mobile-icon-group {
+                grid-column: 1 / -1;
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                margin-right: 0;
+            }
+            .mobile-actions button {
+                min-height: 44px;
+            }
+            .mobile-icon-group button {
+                width: 42px;
+                height: 42px;
+                min-height: 42px;
+                border-radius: 15px;
+                background: rgba(255,255,255,0.72);
+            }
+            .mobile-primary-btn,
+            .mobile-refresh-btn {
+                justify-content: center;
+                padding: 0 10px;
+                height: 46px;
+                border-radius: 17px;
+                font-size: 12px;
+                width: 100%;
+            }
+            .mobile-primary-btn {
+                font-size: 0;
+            }
+            .mobile-primary-btn svg {
+                width: 15px;
+                height: 15px;
+            }
+            .mobile-primary-btn::after {
+                content: '添加节点';
+                font-size: 12px;
+                font-weight: 900;
+                line-height: 1;
+            }
+            .mobile-refresh-btn span {
+                width: auto;
+                min-width: 0;
+                font-size: 0;
+            }
+            .mobile-refresh-btn span::after {
+                content: '刷新状态';
+                font-size: 12px;
+                font-weight: 900;
+                line-height: 1;
+            }
+            .mobile-stats-strip {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+                overflow: visible;
+                padding: 0;
+                margin: 0 0 14px;
+            }
+            .mobile-stats-strip::-webkit-scrollbar,
+            .mobile-control-row::-webkit-scrollbar { display: none; }
+            .mobile-stat-card {
+                min-width: 0;
+                padding: 12px;
+                border-radius: 22px;
+                gap: 9px;
+                isolation: isolate;
+                background: rgba(255,255,255,0.5);
+                border-width: 1px;
+                box-shadow: 0 10px 26px rgba(80,100,160,0.1), inset 0 1px 0 rgba(255,255,255,0.9);
+            }
+            .mobile-stat-card > .absolute,
+            .mobile-stat-card::before { display: none; }
+            .mobile-stat-card.overview-stat-online {
+                background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(255,255,255,0.56) 54%, rgba(255,255,255,0.36));
+                border-color: rgba(16,185,129,0.2);
+            }
+            .mobile-stat-card.overview-stat-offline {
+                background: linear-gradient(135deg, rgba(244,63,94,0.19), rgba(255,255,255,0.56) 54%, rgba(255,255,255,0.36));
+                border-color: rgba(244,63,94,0.2);
+            }
+            .mobile-stat-card.overview-stat-uptime {
+                background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(255,255,255,0.56) 54%, rgba(255,255,255,0.36));
+                border-color: rgba(59,130,246,0.2);
+            }
+            .mobile-stat-card.overview-stat-alert {
+                background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(255,255,255,0.56) 54%, rgba(255,255,255,0.36));
+                border-color: rgba(139,92,246,0.2);
+            }
+            .mobile-stat-card .stat-icon-shell {
+                width: 36px;
+                height: 36px;
+                border-radius: 14px;
+                background: rgba(255,255,255,0.68);
+            }
+            .mobile-stat-card .stat-icon-shell svg {
+                width: 19px;
+                height: 19px;
+            }
+            .mobile-stat-card .stat-value {
+                font-size: 17px;
+                line-height: 1;
+            }
+            .mobile-stat-card .stat-label {
+                font-size: 9px;
+                letter-spacing: 0.08em;
+            }
+            .mobile-action-bar {
+                margin-bottom: 14px;
+                gap: 10px;
+                padding: 0;
+                border-radius: 0;
+                background: transparent;
+                border: 0;
+                box-shadow: none;
+            }
+            .mobile-tab-nav {
+                position: fixed;
+                left: 50%;
+                bottom: calc(14px + env(safe-area-inset-bottom));
+                transform: translateX(-50%);
+                z-index: 45;
+                width: min(78vw, 310px);
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                border-radius: 999px;
+                padding: 4px;
+                background: linear-gradient(180deg, rgba(255,255,255,0.74), rgba(255,255,255,0.42));
+                border: 1px solid rgba(255,255,255,0.8);
+                backdrop-filter: blur(24px) saturate(180%);
+                -webkit-backdrop-filter: blur(24px) saturate(180%);
+                box-shadow: 0 18px 42px rgba(15,23,42,0.16), inset 0 1px 0 rgba(255,255,255,0.94);
+            }
+            .mobile-tab-nav .tab-btn {
+                justify-content: center;
+                padding: 8px 6px;
+                border-radius: 999px;
+                font-size: 11px;
+                min-height: 48px;
+                flex-direction: column;
+                gap: 3px;
+                line-height: 1;
+            }
+            .mobile-tab-nav .tab-btn svg {
+                width: 18px;
+                height: 18px;
+            }
+            .mobile-controls {
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                gap: 9px;
+            }
+            .mobile-control-row {
+                display: flex;
+                flex-wrap: nowrap;
+                gap: 6px;
+                overflow-x: auto;
+                padding: 0;
+                border-radius: 0;
+                background: transparent;
+                border: 0;
+                box-shadow: none;
+                -webkit-overflow-scrolling: touch;
+            }
+            .mobile-control-row.has-range {
+                display: flex;
+                flex-wrap: nowrap;
+            }
+            .mobile-control-row.no-range {
+                display: flex;
+                flex-wrap: nowrap;
+            }
+            .mobile-control-row .glass-panel,
+            .mobile-control-row > button {
+                display: flex;
+                flex-shrink: 1;
+            }
+            .mobile-control-row .glass-panel {
+                border-radius: 999px;
+                width: auto;
+                justify-content: center;
+                background: rgba(255,255,255,0.46);
+                border: 1px solid rgba(255,255,255,0.72);
+                backdrop-filter: blur(16px) saturate(160%);
+                -webkit-backdrop-filter: blur(16px) saturate(160%);
+                box-shadow: 0 7px 18px rgba(80,100,160,0.07), inset 0 1px 0 rgba(255,255,255,0.78);
+            }
+            .mobile-filter-group {
+                width: auto;
+                display: inline-flex !important;
+                flex-wrap: nowrap;
+                gap: 6px;
+                padding: 0;
+                border-radius: 999px;
+                justify-content: center;
+                background: transparent !important;
+                border: 0 !important;
+                box-shadow: none !important;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+            .mobile-range-group {
+                flex: 0 0 auto;
+                order: 1;
+            }
+            .mobile-status-group {
+                flex: 0 0 auto;
+                order: 2;
+            }
+            .mobile-filter-group button {
+                flex: 0 0 auto;
+                min-width: 0;
+                min-height: 36px;
+                padding-left: 9px;
+                padding-right: 9px;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.46);
+                border: 1px solid rgba(255,255,255,0.72);
+                backdrop-filter: blur(16px) saturate(160%);
+                -webkit-backdrop-filter: blur(16px) saturate(160%);
+                box-shadow: 0 7px 18px rgba(80,100,160,0.07), inset 0 1px 0 rgba(255,255,255,0.78);
+            }
+            .mobile-sort-button {
+                width: auto;
+                display: inline-flex !important;
+                justify-content: center;
+                min-height: 36px;
+                order: 3;
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+            .mobile-control-row.has-range .mobile-range-group,
+            .mobile-control-row.has-range .mobile-status-group,
+            .mobile-control-row.has-range .mobile-sort-button {
+                flex: 0 0 auto;
+            }
+            .mobile-control-row .glass-panel button {
+                flex: 1;
+                min-height: 36px;
+            }
+            .mobile-control-row > button {
+                width: 100%;
+                justify-content: center;
+                min-height: 40px;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.46);
+                border: 1px solid rgba(255,255,255,0.72);
+                backdrop-filter: blur(16px) saturate(160%);
+                -webkit-backdrop-filter: blur(16px) saturate(160%);
+                box-shadow: 0 7px 18px rgba(80,100,160,0.07), inset 0 1px 0 rgba(255,255,255,0.78);
+            }
+            .mobile-search {
+                width: 100%;
+                border-radius: 20px;
+                box-shadow: 0 8px 22px rgba(80,100,160,0.07);
+            }
+            .mobile-search input {
+                min-height: 44px;
+                border-radius: 18px;
+                background: rgba(255,255,255,0.68);
+                border-color: rgba(255,255,255,0.86);
+            }
+            .mobile-server-grid {
+                display: flex;
+                flex-direction: column;
+                gap: 14px;
+            }
+            .server-card.mobile-card {
+                padding: 16px;
+                border-radius: 28px;
+            }
+            .mobile-card .server-card-head {
+                margin: -16px -16px 14px;
+                padding: 14px;
+                border-radius: 28px 28px 18px 18px;
+                flex-direction: column;
+                gap: 12px;
+            }
+            .mobile-card .server-card-head > .flex:first-child {
+                width: 100%;
+                gap: 12px;
+            }
+            .mobile-card .server-card-head > .flex:first-child > div:first-child {
+                width: 48px;
+                height: 48px;
+                border-radius: 17px;
+            }
+            .mobile-card .server-card-head h3 {
+                font-size: 17px;
+                line-height: 1.18;
+                white-space: normal;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+            }
+            .mobile-card .server-card-head p {
+                max-width: 100%;
+                font-size: 10px;
+            }
+            .mobile-card .server-card-head > div:last-child {
+                align-self: flex-start;
+            }
+            .mobile-card .server-card-metrics {
+                padding: 14px;
+                margin-bottom: 12px;
+                border-radius: 20px;
+            }
+            .mobile-card .server-card-metrics span.text-3xl {
+                font-size: 1.55rem;
+            }
+            .mobile-card .server-card-media {
+                padding: 13px;
+                border-radius: 20px;
+            }
+            .mobile-card .server-card-media .grid {
+                gap: 0;
+            }
+            .mobile-card .server-card-footer {
+                margin-top: 10px;
+                padding-top: 8px;
+                align-items: center;
+                gap: 8px;
+                flex-direction: row;
+                flex-wrap: nowrap;
+            }
+            .mobile-card .server-card-footer > div:first-child {
+                flex: 0 0 auto;
+                min-width: 0;
+                white-space: nowrap;
+            }
+            .mobile-card-actions {
+                opacity: 1;
+                width: auto;
+                margin-left: auto;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 6px;
+            }
+            .mobile-card-actions button {
+                min-height: 34px;
+                border-radius: 11px;
+                font-size: 12px;
+                font-weight: 800;
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+            .dashboard-shell.mobile-dashboard {
+                padding: 10px;
+                border-radius: 26px;
+                gap: 10px;
+            }
+            .mobile-dashboard .dashboard-row {
+                padding: 11px;
+                border-radius: 24px;
+                gap: 10px;
+                background: linear-gradient(180deg, rgba(255,255,255,0.58), rgba(255,255,255,0.34));
+                border-color: rgba(255,255,255,0.78);
+            }
+            .mobile-dashboard .dashboard-row::before { display: none; }
+            .mobile-dashboard .dashboard-row-online {
+                background: linear-gradient(135deg, rgba(16,185,129,0.17), rgba(255,255,255,0.52) 48%, rgba(255,255,255,0.34));
+            }
+            .mobile-dashboard .dashboard-row-offline {
+                background: linear-gradient(135deg, rgba(244,63,94,0.17), rgba(255,255,255,0.52) 48%, rgba(255,255,255,0.34));
+            }
+            .mobile-dashboard .dashboard-row-updating {
+                background: linear-gradient(135deg, rgba(59,130,246,0.17), rgba(255,255,255,0.52) 48%, rgba(255,255,255,0.34));
+            }
+            .mobile-dashboard .dashboard-node-panel {
+                padding: 11px;
+                border-radius: 19px;
+                gap: 11px;
+                background: rgba(255,255,255,0.44);
+            }
+            .mobile-dashboard .dashboard-node-panel > .absolute { display: none; }
+            .mobile-dashboard .dashboard-node-panel > div:nth-child(2) {
+                width: 44px;
+                height: 44px;
+                border-radius: 15px;
+            }
+            .mobile-dashboard .dashboard-node-panel .font-black {
+                font-size: 15px;
+            }
+            .mobile-dashboard .status-chart-shell {
+                min-height: 4.65rem;
+                border-radius: 19px;
+                padding: 9px 10px;
+                background: rgba(255,255,255,0.48);
+                border-color: rgba(255,255,255,0.78);
+            }
+            .mobile-modal {
+                align-items: flex-end;
+                padding: 0;
+            }
+            .mobile-modal-backdrop {
+                background: rgba(15,23,42,0.24);
+            }
+            .mobile-sheet {
+                width: 100%;
+                max-width: none;
+                max-height: calc(100vh - 18px);
+                border-radius: 28px 28px 0 0;
+                padding: 22px 18px 18px;
+                overflow: hidden;
+            }
+            .mobile-sheet h2 {
+                font-size: 20px;
+                margin-bottom: 16px;
+                padding-right: 34px;
+            }
+            .mobile-sheet .space-y-4 {
+                max-height: calc(100vh - 140px);
+                padding-right: 2px;
+            }
+            .mobile-sheet textarea {
+                min-height: 104px;
+            }
+            .mobile-sheet .grid-cols-\\[80px_1fr_80px\\] {
+                grid-template-columns: 70px minmax(0,1fr) 64px;
+                gap: 7px;
+            }
+            .mobile-icon-sheet {
+                height: calc(100vh - 18px);
+            }
+            .mobile-icon-sheet .grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 10px;
+                max-height: calc(100vh - 180px);
+            }
+        }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
@@ -536,6 +1047,7 @@ const HTML_CONTENT = `
             const [isRefreshing, setIsRefreshing] = useState(false);
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
             const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+            const [isSavingServer, setIsSavingServer] = useState(false);
             const [editingServerId, setEditingServerId] = useState(null);
             const [iconModalTarget, setIconModalTarget] = useState(null);
             const [iconInput, setIconInput] = useState('');
@@ -568,6 +1080,8 @@ const HTML_CONTENT = `
             const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(60);
             const autoRefreshTimerRef = useRef(null);
             const privacyMenuRef = useRef(null);
+            const configRevisionRef = useRef('');
+            const configUpdatedAtRef = useRef(0);
 
             // API 调用封装
             const apiFetch = async (path, options = {}) => {
@@ -590,8 +1104,12 @@ const HTML_CONTENT = `
                     }
                     const data = await res.json();
                     setServers(Array.isArray(data.servers) ? data.servers : []);
-                    setConfigUpdatedAt(Number(data.updatedAt) || 0);
-                    setConfigRevision(data.revision || '');
+                    const nextUpdatedAt = Number(data.updatedAt) || 0;
+                    const nextRevision = data.revision || '';
+                    setConfigUpdatedAt(nextUpdatedAt);
+                    setConfigRevision(nextRevision);
+                    configUpdatedAtRef.current = nextUpdatedAt;
+                    configRevisionRef.current = nextRevision;
                     setNotifyEnabled(Boolean(data.notifyEnabled));
                     setTelegramForm(data.telegram || { enabled: false, botToken: '', chatId: '' });
                     if (data.icons) {
@@ -603,6 +1121,8 @@ const HTML_CONTENT = `
             };
 
             useEffect(() => { fetchConfigData().finally(() => setIsLoading(false)); }, []);
+            useEffect(() => { configRevisionRef.current = configRevision; }, [configRevision]);
+            useEffect(() => { configUpdatedAtRef.current = configUpdatedAt; }, [configUpdatedAt]);
             useEffect(() => { if (iconModalTarget) setIconSearch(''); }, [iconModalTarget]);
             useEffect(() => {
                 localStorage.setItem('privacy_mode', privacyMode);
@@ -663,7 +1183,8 @@ const HTML_CONTENT = `
                 setTelegramForm(nextTelegram);
                 const nextUpdatedAt = Date.now();
                 setConfigUpdatedAt(nextUpdatedAt);
-                const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: mergedServers, icons: newIcons, telegram: nextTelegram, updatedAt: nextUpdatedAt, baseRevision: configRevision }) });
+                configUpdatedAtRef.current = nextUpdatedAt;
+                const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: mergedServers, icons: newIcons, telegram: nextTelegram, updatedAt: nextUpdatedAt, baseRevision: configRevisionRef.current }) });
                 const saveResult = await res.json().catch(() => ({}));
                 if (!res.ok) {
                     if (res.status === 409) {
@@ -672,7 +1193,9 @@ const HTML_CONTENT = `
                     }
                     throw new Error('配置保存失败');
                 }
-                setConfigRevision(saveResult.revision || '');
+                const nextRevision = saveResult.revision || '';
+                setConfigRevision(nextRevision);
+                configRevisionRef.current = nextRevision;
                 return nextUpdatedAt;
             };
 
@@ -686,8 +1209,12 @@ const HTML_CONTENT = `
                     setServers(updatedData.servers);
                     setIconLib(updatedData.icons);
                     setTelegramForm(updatedData.telegram || telegramForm);
-                    setConfigUpdatedAt(Number(updatedData.updatedAt) || configUpdatedAt);
-                    setConfigRevision(updatedData.revision || configRevision);
+                    const nextUpdatedAt = Number(updatedData.updatedAt) || configUpdatedAtRef.current;
+                    const nextRevision = updatedData.revision || configRevisionRef.current;
+                    setConfigUpdatedAt(nextUpdatedAt);
+                    setConfigRevision(nextRevision);
+                    configUpdatedAtRef.current = nextUpdatedAt;
+                    configRevisionRef.current = nextRevision;
                     setNotifyEnabled(Boolean(updatedData.notifyEnabled));
                 } catch(e) {
                     alert("测速接口异常");
@@ -856,6 +1383,9 @@ const HTML_CONTENT = `
 
             const handleSaveServer = async () => {
                 if(!addForm.name || !addForm.host) return alert("请填写名称和地址");
+                if (isSavingServer || isRefreshing) return;
+                setIsSavingServer(true);
+                try {
                 let finalUrl = buildServerUrlFromForm();
                 if (finalUrl.endsWith('/')) finalUrl = finalUrl.slice(0, -1);
 
@@ -895,6 +1425,12 @@ const HTML_CONTENT = `
                 const savedUpdatedAt = await syncToCloud(updatedServers, iconLib);
                 setIsAddModalOpen(false); resetServerForm(); setActiveTab('cards');
                 await manualPing(updatedServers, savedUpdatedAt);
+                } catch(e) {
+                    console.error('保存节点失败', e);
+                    alert(e.message || '节点保存失败，请稍后重试');
+                } finally {
+                    setIsSavingServer(false);
+                }
             };
 
             const handleSaveTelegram = async () => {
@@ -1013,10 +1549,10 @@ const HTML_CONTENT = `
                         <div className="orb orb-4"></div>
                     </div>
 
-                    <div className="w-full max-w-[1600px] mx-auto px-4 py-8 md:px-8 md:py-12 relative z-10">
+                    <div className="mobile-page w-full max-w-[1600px] mx-auto px-4 py-8 md:px-8 md:py-12 relative z-10">
                         {/* Header */}
-                        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
-                            <div>
+                        <header className="mobile-header flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+                            <div className="mobile-title-row">
                                 <h1 className="text-3xl md:text-4xl font-black tracking-tight flex items-center gap-3">
                                     <div className="brand-icon-shell w-14 h-14 rounded-[1.1rem] backdrop-blur-sm flex items-center justify-center">
                                         <Icons.Cloud className="w-8 h-8 text-sky-500 drop-shadow-sm" />
@@ -1025,15 +1561,15 @@ const HTML_CONTENT = `
                                         Emby 服务器探针
                                     </span>
                                 </h1>
-                                <p className="text-[11px] text-slate-500 font-bold tracking-widest mt-3 uppercase flex items-center gap-2">
+                                <p className="mobile-subtitle text-[11px] text-slate-500 font-bold tracking-widest mt-3 uppercase flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full dot-online"></span>
                                     Emby server probe
                                 </p>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-3">
+                            <div className="mobile-actions flex flex-wrap items-center gap-3">
                                 {/* 辅助功能组 (Icon-only) */}
-                                <div className="flex items-center gap-2 mr-2">
+                                <div className="mobile-icon-group flex items-center gap-2 mr-2">
                                     <div className="relative" ref={privacyMenuRef}>
                                         <button
                                             onClick={() => setIsPrivacyMenuOpen(!isPrivacyMenuOpen)}
@@ -1067,13 +1603,13 @@ const HTML_CONTENT = `
                                 </div>
 
                                 {/* 核心操作组 */}
-                                <button onClick={openAddServerModal} className="px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
+                                <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
                                     <Icons.Plus className="w-4 h-4" /> 添加节点
                                 </button>
                                 <button
                                     onClick={() => manualPing(servers)}
                                     disabled={isRefreshing}
-                                    className="px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap"
+                                    className="mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap"
                                 >
                                     <Icons.RefreshCw className={"w-4 h-4 " + (isRefreshing ? 'animate-spin' : '')} />
                                     <span className="inline-flex items-center justify-center w-[7.5rem] tabular-nums">
@@ -1084,29 +1620,29 @@ const HTML_CONTENT = `
                         </header>
 
                         {/* Overview Stats */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+                        <div className="mobile-stats-strip grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                             {[
                                 { label: '在线节点', value: onlineCount + "/" + servers.length, icon: Icons.CheckCircle2, color: 'text-emerald-500', glow: 'glow-online', cardClass: 'overview-stat-online' },
                                 { label: '当前离线', value: offlineCount, icon: Icons.XCircle, color: 'text-rose-500', glow: 'glow-offline', cardClass: 'overview-stat-offline' },
                                 { label: (availabilityRange === 'week' ? '7天' : '24H') + ' 可用率', value: avgUptime + "%", icon: Icons.BarChart3, color: 'text-blue-500', glow: 'bg-blue-500/20', cardClass: 'overview-stat-uptime' },
                                 { label: '报警通知', value: notifyLabel, icon: Icons.AlertCircle, color: 'text-purple-500', glow: 'bg-purple-500/20', cardClass: 'overview-stat-alert' },
                             ].map((item, idx) => (
-                                <div key={idx} className={"overview-stat " + item.cardClass + " p-6 rounded-[2rem] flex items-center gap-5 relative overflow-hidden group hover:-translate-y-0.5 transition-transform"}>
+                                <div key={idx} className={"mobile-stat-card overview-stat " + item.cardClass + " p-6 rounded-[2rem] flex items-center gap-5 relative overflow-hidden group hover:-translate-y-0.5 transition-transform"}>
                                     <div className={"absolute -right-4 -top-4 w-24 h-24 rounded-full blur-2xl " + item.glow}></div>
-                                    <div className={"w-12 h-12 rounded-2xl bg-white/60 border border-white flex items-center justify-center shadow-sm relative z-10 " + item.color}>
+                                    <div className={"stat-icon-shell w-12 h-12 rounded-2xl bg-white/60 border border-white flex items-center justify-center shadow-sm relative z-10 " + item.color}>
                                         <item.icon className="w-6 h-6" />
                                     </div>
                                     <div className="relative z-10">
-                                        <div className="text-2xl font-black text-slate-800 tracking-tight">{item.value}</div>
-                                        <div className="text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest">{item.label}</div>
+                                        <div className="stat-value text-2xl font-black text-slate-800 tracking-tight">{item.value}</div>
+                                        <div className="stat-label text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest">{item.label}</div>
                                     </div>
                                 </div>
                             ))}
                         </div>
 
                         {/* Action Bar: View Toggles & Search */}
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                            <div className="tab-nav w-fit">
+                        <div className="mobile-action-bar flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                            <div className="mobile-tab-nav tab-nav w-fit">
                                 <button onClick={() => setActiveTab('cards')} className={"tab-btn " + (activeTab === 'cards' ? 'active' : '')}>
                                     <Icons.LayoutGrid className="w-4 h-4" /> 看板
                                 </button>
@@ -1115,16 +1651,17 @@ const HTML_CONTENT = `
                                 </button>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                            <div className="mobile-controls flex flex-wrap items-center gap-3 w-full md:w-auto">
                                 {/* 时间范围胶囊 (仅看板模式) */}
-                                {activeTab === 'cards' && (
-                                    <div className="hidden sm:flex glass-panel p-1.5 rounded-[14px]">
+                                <div className={"mobile-control-row " + (activeTab === 'cards' ? 'has-range' : 'no-range')}>
+                                    {activeTab === 'cards' && (
+                                    <div className="mobile-range-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
                                         <button onClick={() => setAvailabilityRange('day')} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (availabilityRange === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>24H</button>
                                         <button onClick={() => setAvailabilityRange('week')} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (availabilityRange === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>7天</button>
                                     </div>
-                                )}
+                                    )}
                                 {/* 状态筛选胶囊 */}
-                                <div className="hidden sm:flex glass-panel p-1.5 rounded-[14px]">
+                                <div className="mobile-status-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
                                     {['all', 'online', 'offline'].map((status) => (
                                         <button key={status} onClick={() => setStatusFilter(status)} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (statusFilter === status ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
                                             {status === 'all' ? '全部' : status === 'online' ? '在线' : '离线'}
@@ -1133,15 +1670,16 @@ const HTML_CONTENT = `
                                 </div>
                                 <button
                                     onClick={nextAvailabilitySort}
-                                    className={"hidden sm:flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold uppercase tracking-wider transition-all items-center gap-1.5 " + (availabilitySort === 'none' ? 'text-slate-500 hover:text-slate-700' : 'bg-white/80 text-slate-800 shadow-sm')}
+                                    className={"mobile-sort-button hidden sm:flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold uppercase tracking-wider transition-all items-center gap-1.5 " + (availabilitySort === 'none' ? 'text-slate-500 hover:text-slate-700' : 'bg-white/80 text-slate-800 shadow-sm')}
                                     title="点击切换：默认排序 / 可用率升序 / 可用率降序"
                                 >
                                     <Icons.BarChart3 className="w-3.5 h-3.5" />
                                     <span>排序</span>
                                     {availabilitySortArrow && <span className="text-sm leading-none">{availabilitySortArrow}</span>}
                                 </button>
+                                </div>
                                 {/* 搜索框 */}
-                                <div className="relative w-full sm:w-64">
+                                <div className="mobile-search relative w-full sm:w-64">
                                     <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                     <input
                                         type="text"
@@ -1165,7 +1703,7 @@ const HTML_CONTENT = `
 
                         {/* Cards View */}
                         {activeTab === 'cards' && filteredServers.length > 0 && (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+                            <div className="mobile-server-grid grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
                                 {filteredServers.map((s) => {
                                     const iconImg = getDisplayIcon(s);
                                     const isOnline = s.status === 'online';
@@ -1178,7 +1716,7 @@ const HTML_CONTENT = `
                                     }[s.status] || { text: 'text-slate-600', bg: 'bg-slate-200/50', border: 'border-slate-200', dotClass: 'bg-slate-400', glowClass: 'bg-slate-300/20' };
 
                                     return (
-                                        <div key={s.id} className="group server-card p-6 rounded-[2rem] transition-all duration-300 flex flex-col hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] hover:-translate-y-1 relative">
+                                        <div key={s.id} className="mobile-card group server-card p-6 rounded-[2rem] transition-all duration-300 flex flex-col hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] hover:-translate-y-1 relative">
 
                                             {/* 高级卡片呼吸背光 */}
                                             <div className={"absolute -right-16 -top-16 w-48 h-48 rounded-full blur-[50px] pointer-events-none " + statusColors.glowClass}></div>
@@ -1272,11 +1810,11 @@ const HTML_CONTENT = `
 
                                             {/* Footer */}
                                             <div className="server-card-footer mt-5 flex justify-between items-center text-[10px] text-slate-400 font-bold relative z-10">
-                                                <div className="flex items-center gap-1.5 bg-white/60 px-2.5 py-1 rounded-full border border-white">
+                                                <div className="flex items-center gap-1.5 bg-white/60 px-2 py-1 rounded-full border border-white">
                                                     <Icons.Clock className="w-3 h-3" />
-                                                    检测: {new Date(s.lastCheck).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                    检测: {new Date(s.lastCheck).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                                 </div>
-                                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <div className="mobile-card-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => openEditServerModal(s)} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">编辑</button>
                                                     <button onClick={async () => {
                                                         if(confirm('彻底删除该节点?')) {
@@ -1294,7 +1832,7 @@ const HTML_CONTENT = `
 
                         {/* Dashboard View */}
                         {activeTab === 'dashboard' && sortedServers.length > 0 && (
-                            <div className="dashboard-shell rounded-[2rem] p-5 flex flex-col gap-4 relative overflow-hidden">
+                            <div className="mobile-dashboard dashboard-shell rounded-[2rem] p-5 flex flex-col gap-4 relative overflow-hidden">
                                 <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent pointer-events-none"></div>
                                 {sortedServers.map((s) => {
                                     const iconImg = getDisplayIcon(s);
@@ -1335,9 +1873,9 @@ const HTML_CONTENT = `
 
                     {/* 专属设置弹窗 (Settings Modal) */}
                     {isSettingsOpen && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIsSettingsOpen(false)}></div>
-                            <div className="relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIsSettingsOpen(false)}></div>
+                            <div className="mobile-sheet relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
                                 <button onClick={() => setIsSettingsOpen(false)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors">
                                     <Icons.X className="w-4 h-4" />
                                 </button>
@@ -1393,10 +1931,10 @@ const HTML_CONTENT = `
                                         )}
                                     </div>
 
-                                    {/* 视觉资产库 */}
+                                    {/* 图标库 */}
                                     <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
                                         <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
-                                            <Icons.ImageIcon className="w-4 h-4 text-purple-500" />视觉资产库 (JSON)
+                                            <Icons.ImageIcon className="w-4 h-4 text-purple-500" />图标库 (JSON)
                                         </div>
                                         <div className="flex gap-2">
                                             <input type="text" value={iconInput} onChange={e => setIconInput(e.target.value)} placeholder="https://example.com/icons.json" className="flex-1 glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
@@ -1410,9 +1948,9 @@ const HTML_CONTENT = `
 
                     {/* 添加/编辑节点弹窗 (Add Node Modal) */}
                     {isAddModalOpen && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIsAddModalOpen(false)}></div>
-                            <div className="relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIsAddModalOpen(false)}></div>
+                            <div className="mobile-sheet relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
                                 <button onClick={() => setIsAddModalOpen(false)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors">
                                     <Icons.X className="w-4 h-4" />
                                 </button>
@@ -1489,8 +2027,8 @@ const HTML_CONTENT = `
                                 </div>
 
                                 <div className="mt-8">
-                                    <button onClick={handleSaveServer} className="w-full py-3.5 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-sm font-bold shadow-xl shadow-slate-900/10 transition-all flex justify-center items-center gap-2">
-                                        {editingServerId ? '保存修改' : '确认部署'}
+                                    <button onClick={handleSaveServer} disabled={isSavingServer || isRefreshing} className="w-full py-3.5 bg-slate-800 hover:bg-slate-900 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-2xl text-sm font-bold shadow-xl shadow-slate-900/10 transition-all flex justify-center items-center gap-2">
+                                        {isSavingServer ? '保存中...' : (editingServerId ? '保存修改' : '确认部署')}
                                     </button>
                                 </div>
                             </div>
@@ -1499,9 +2037,9 @@ const HTML_CONTENT = `
 
                     {/* 图标选择弹窗 */}
                     {iconModalTarget && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIconModalTarget(null)}></div>
-                            <div className="relative w-full max-w-4xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 flex flex-col border border-white animate-in zoom-in-95 duration-200">
+                        <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setIconModalTarget(null)}></div>
+                            <div className="mobile-sheet mobile-icon-sheet relative w-full max-w-4xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 flex flex-col border border-white animate-in zoom-in-95 duration-200">
                                 <button onClick={() => setIconModalTarget(null)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors z-10">
                                     <Icons.X className="w-4 h-4" />
                                 </button>
@@ -1572,9 +2110,34 @@ export default {
   UPDATE_FILE: 'emby.js',
   HISTORY_LIMIT: 7 * 24 * 60,
   OFFLINE_NOTIFY_DELAY_MS: 5 * 60 * 1000,
+  APP_ICON_SVG: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><linearGradient id="bg" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#10b981"/></linearGradient><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#0f172a" flood-opacity=".22"/></filter></defs><rect width="256" height="256" rx="56" fill="#dce8fb"/><circle cx="68" cy="58" r="66" fill="#bfdbfe" opacity=".65"/><circle cx="198" cy="196" r="78" fill="#a7f3d0" opacity=".55"/><g filter="url(#s)"><rect x="48" y="58" width="160" height="58" rx="18" fill="url(#bg)"/><rect x="48" y="140" width="160" height="58" rx="18" fill="url(#bg)" opacity=".92"/><circle cx="78" cy="87" r="8" fill="white"/><circle cx="78" cy="169" r="8" fill="white"/><path d="M106 86h66M106 168h66" stroke="white" stroke-width="12" stroke-linecap="round" opacity=".86"/></g></svg>',
 
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname === '/manifest.webmanifest') {
+      return this.json({
+          name: 'Emby 服务器探针',
+          short_name: 'Emby 探针',
+          start_url: '/',
+          scope: '/',
+          display: 'standalone',
+          background_color: '#dce8fb',
+          theme_color: '#dce8fb',
+          icons: [
+              { src: '/app-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
+          ]
+      });
+    }
+
+    if (url.pathname === '/app-icon.svg') {
+      return new Response(this.APP_ICON_SVG, {
+          headers: {
+              'Content-Type': 'image/svg+xml;charset=utf-8',
+              'Cache-Control': 'public, max-age=604800'
+          }
+      });
+    }
 
     if (url.pathname === '/api/config') {
       const auth = this.requireAdmin(request, env);
