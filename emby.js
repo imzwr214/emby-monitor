@@ -1755,9 +1755,10 @@ const HTML_CONTENT = `
                                     <button
                                         onClick={() => setIsSettingsOpen(true)}
                                         title="系统设置"
-                                        className="w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
+                                        className="relative w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
                                     >
                                         <Icons.Settings className="w-5 h-5" />
+                                        {updateInfo && updateInfo.hasUpdate && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_0_2px_rgba(255,255,255,0.92)]"></span>}
                                     </button>
                                 </div>
 
@@ -2349,8 +2350,8 @@ const HTML_CONTENT = `
                                 <button onClick={() => setIconModalTarget(null)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors z-10">
                                     <Icons.X className="w-4 h-4" />
                                 </button>
-                                <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-2"><Icons.ImageIcon className="w-6 h-6 text-purple-500" />视觉资产选择</h2>
-                                <p className="text-xs text-slate-500 mb-6 font-bold">点击下方 Logo 为服务器应用自定义图标。</p>
+                                <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-2"><Icons.ImageIcon className="w-6 h-6 text-purple-500" />图标选择</h2>
+                                <p className="text-xs text-slate-500 mb-6 font-bold">点击下方图标为服务器应用自定义图标。</p>
 
                                 <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-4">
                                     <div className="relative flex-1">
@@ -2377,7 +2378,7 @@ const HTML_CONTENT = `
                                             setIconModalTarget(null);
                                         }} className="aspect-square bg-white rounded-[1.2rem] border border-slate-100 p-3 cursor-pointer hover:border-blue-400 hover:shadow-lg hover:-translate-y-1 flex items-center justify-center shadow-sm relative group transition-all">
                                             <img src={getProxyImgSrc(url)} className="w-full h-full object-contain drop-shadow-sm" loading="lazy" onError={(e) => {e.target.style.display='none'}} />
-                                            <div className="absolute -bottom-8 opacity-0 group-hover:opacity-100 text-[10px] font-bold text-white bg-slate-800 px-2 py-1 rounded-lg pointer-events-none whitespace-nowrap z-20 shadow-xl">{key}</div>
+                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] font-bold text-white bg-slate-800 px-2 py-1 rounded-lg pointer-events-none whitespace-nowrap z-50 shadow-xl">{key}</div>
                                         </div>
                                     ))}
                                     {filteredIconEntries.length === 0 && (
