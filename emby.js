@@ -1140,7 +1140,13 @@ const HTML_CONTENT = `
             const fetchConfigData = async () => {
                 try {
                     const res = await apiFetch('/api/config');
-                    if (res.status === 401) {
+                    if (res.status === 401 || res.status === 403) {
+                        const errorData = await res.json().catch(() => ({}));
+                        if (errorData.error === 'ADMIN_TOKEN_REQUIRED') {
+                            setAccessDenied('未配置 ADMIN_TOKEN，后台已被锁定。请先在 Cloudflare Worker 环境变量中设置 ADMIN_TOKEN。');
+                            setIsLoading(false);
+                            return;
+                        }
                         const token = prompt('请输入管理 Token');
                         if (token) {
                             localStorage.setItem('emby_admin_token', token);
@@ -2973,14 +2979,14 @@ export default {
   json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } }); },
 
   requireAdmin(request, env) {
-      if (!env.ADMIN_TOKEN) return null;
-      const expected = 'Bearer ' + env.ADMIN_TOKEN;
+      const token = String(env.ADMIN_TOKEN || '').trim();
+      if (!token) return this.json({ error: 'ADMIN_TOKEN_REQUIRED', message: 'ADMIN_TOKEN must be configured' }, 403);
+      const expected = 'Bearer ' + token;
       if (request.headers.get('Authorization') === expected) return null;
       return this.json({ error: 'Unauthorized' }, 401);
   },
 
   requireStrictAdmin(request, env) {
-      if (!env.ADMIN_TOKEN) return this.json({ error: 'ADMIN_TOKEN is required for update APIs' }, 401);
       return this.requireAdmin(request, env);
   },
 
