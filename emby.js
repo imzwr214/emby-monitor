@@ -417,6 +417,37 @@ const HTML_CONTENT = `
                 border-radius: 15px;
                 background: rgba(255,255,255,0.72);
             }
+            .mobile-privacy-menu {
+                position: fixed;
+                left: 50%;
+                top: 50%;
+                right: auto;
+                transform: translate(-50%, -50%);
+                width: min(86vw, 340px);
+                z-index: 70;
+                padding: 18px;
+                border-radius: 28px;
+            }
+            .mobile-privacy-menu button {
+                width: 100%;
+                height: auto;
+                min-height: 56px;
+                border-radius: 18px;
+                background: transparent;
+                justify-content: flex-start;
+                padding: 12px 14px;
+            }
+            .mobile-privacy-menu button > div {
+                min-width: 0;
+            }
+            .mobile-privacy-backdrop {
+                position: fixed;
+                inset: 0;
+                z-index: 65;
+                background: rgba(15,23,42,0.22);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+            }
             .mobile-primary-btn,
             .mobile-refresh-btn {
                 justify-content: center;
@@ -427,14 +458,14 @@ const HTML_CONTENT = `
                 width: 100%;
             }
             .mobile-primary-btn {
-                font-size: 0;
+                font-size: 12px;
             }
             .mobile-primary-btn svg {
                 width: 15px;
                 height: 15px;
             }
             .mobile-primary-btn::after {
-                content: '添加节点';
+                content: none;
                 font-size: 12px;
                 font-weight: 900;
                 line-height: 1;
@@ -1582,20 +1613,6 @@ const HTML_CONTENT = `
                                         >
                                             {privacyMode !== 'none' ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
                                         </button>
-                                        {isPrivacyMenuOpen && (
-                                            <div className="absolute right-0 top-12 z-40 w-44 rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-xl p-1.5">
-                                                {privacyOptions.map((option) => (
-                                                    <button
-                                                        key={option.mode}
-                                                        onClick={() => { setPrivacyMode(option.mode); setIsPrivacyMenuOpen(false); }}
-                                                        className={"w-full text-left rounded-xl px-3 py-2 transition-all " + (privacyMode === option.mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/60 hover:text-slate-800")}
-                                                    >
-                                                        <div className="text-xs font-black">{option.label}</div>
-                                                        <div className="text-[10px] font-bold opacity-60 mt-0.5">{option.desc}</div>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
                                     </div>
                                     <button
                                         onClick={() => setIsSettingsOpen(true)}
@@ -1874,6 +1891,30 @@ const HTML_CONTENT = `
                             </div>
                         )}
                     </div>
+
+                    {isPrivacyMenuOpen && (
+                        <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="mobile-privacy-backdrop absolute inset-0" onClick={() => setIsPrivacyMenuOpen(false)}></div>
+                            <div className="mobile-privacy-menu relative border border-white/80 bg-white/80 backdrop-blur-xl shadow-2xl">
+                                <div className="mb-3 px-1">
+                                    <div className="text-lg font-black text-slate-800">隐藏显示</div>
+                                    <div className="text-xs font-bold text-slate-500 mt-1">选择需要隐藏的服务器信息</div>
+                                </div>
+                                <div className="space-y-2">
+                                    {privacyOptions.map((option) => (
+                                        <button
+                                            key={option.mode}
+                                            onClick={() => { setPrivacyMode(option.mode); setIsPrivacyMenuOpen(false); }}
+                                            className={"w-full text-left transition-all " + (privacyMode === option.mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/60 hover:text-slate-800")}
+                                        >
+                                            <div className="text-sm font-black">{option.label}</div>
+                                            <div className="text-[11px] font-bold opacity-60 mt-0.5">{option.desc}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* 专属设置弹窗 (Settings Modal) */}
                     {isSettingsOpen && (
