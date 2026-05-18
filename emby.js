@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.1';
+        const APP_VERSION = '2026.05.19.2';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2438,8 +2438,9 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.1',
+  APP_VERSION: '2026.05.19.2',
   APP_UPDATE_NOTES: [
+      '更新检查改为带缓存穿透的 GitHub raw 拉取，避免刚推送的版本读到旧缓存。',
       '调整公开页按钮顺序，桌面端公开页移到添加服务器前面。',
       '主页面和公开页新增墙内社交平台分享提醒。',
       '移动端新增服务器弹窗改为内容区滚动，确认按钮固定显示。',
@@ -3049,8 +3050,15 @@ export default {
   canSelfUpdate(env) { return this.getMissingUpdateEnv(env).length === 0; },
 
   async fetchLatestWorkerSource(env) {
-      const sourceUrl = this.getUpdateRawUrl(env);
-      const response = await fetch(sourceUrl, { headers: { 'Accept': 'text/plain', 'User-Agent': 'Emby-Cluster-Monitor-Updater/' + this.APP_VERSION } });
+      const sourceUrl = this.getUpdateRawUrl(env) + '?t=' + Date.now();
+      const response = await fetch(sourceUrl, {
+          headers: {
+              'Accept': 'text/plain',
+              'Cache-Control': 'no-cache, no-store, max-age=0',
+              'Pragma': 'no-cache',
+              'User-Agent': 'Emby-Cluster-Monitor-Updater/' + this.APP_VERSION
+          }
+      });
       if (!response.ok) throw new Error('GitHub source fetch failed HTTP ' + response.status);
       const source = await response.text();
       if (!this.isSafeWorkerSource(source)) throw new Error('Latest source validation failed');
