@@ -1633,7 +1633,7 @@ const HTML_CONTENT = `
 
                                 {/* 核心操作组 */}
                                 <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
-                                    <Icons.Plus className="w-4 h-4" /> 服务器
+                                    <Icons.Plus className="w-4 h-4" /> 添加服务器
                                 </button>
                                 <button
                                     onClick={() => manualPing(servers)}
