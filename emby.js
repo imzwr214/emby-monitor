@@ -2381,7 +2381,10 @@ export default {
 
   async sendTelegram(env, text, config = {}) {
       const tg = this.currentTelegramConfig(env, config);
-      if (!tg.enabled || !tg.botToken || !tg.chatId) return false;
+      if (!tg.enabled || !tg.botToken || !tg.chatId) {
+          console.log('[notify] telegram disabled or incomplete config', { enabled: tg.enabled, hasBotToken: Boolean(tg.botToken), hasChatId: Boolean(tg.chatId) });
+          return false;
+      }
       const endpoint = 'https://api.telegram.org/bot' + tg.botToken + '/sendMessage';
       try {
           const response = await fetch(endpoint, {
@@ -2389,8 +2392,14 @@ export default {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ chat_id: tg.chatId, text, disable_web_page_preview: true })
           });
+          if (!response.ok) {
+              const detail = await response.text().catch(() => '');
+              console.log('[notify] telegram send failed', { status: response.status, detail: detail.slice(0, 300) });
+          }
           return response.ok;
-      } catch(e) {}
+      } catch(e) {
+          console.log('[notify] telegram send error', e && e.message ? e.message : String(e));
+      }
       return false;
   },
 
@@ -2854,9 +2863,6 @@ export default {
   },
 
   async probeEmbyServer(server, targetUrl) {
-      const loginProbe = await this.verifyWithLoginState(server);
-      if (loginProbe && loginProbe.ok) return loginProbe;
-
       const headers = { 'Accept': 'application/json,text/plain,*/*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36' };
       const paths = ['/emby/System/Info/Public', '/System/Info/Public', '/emby/Users/Public', '/emby/web/index.html', '/web/index.html'];
       const start = Date.now();
@@ -2867,7 +2873,6 @@ export default {
               if (r.status === 401 || r.status === 403) return { ok: true, latency: Date.now() - start };
           } catch(e) {}
       }
-      if (loginProbe && loginProbe.ok === false) return loginProbe;
       return { ok: false, latency: 0 };
   },
 
@@ -2958,16 +2963,36 @@ export default {
               const previouslySaved = latestById.get(latest.id) || latest;
               const mergedServer = { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
               const oldStatus = previouslySaved.url === latest.url ? previouslySaved.status : probed.previousStatus;
-              if (this.isTelegramEnabled(env, baseConfig) && oldStatus === 'offline' && mergedServer.status === 'offline' && this.shouldSendOfflineAlert(mergedServer)) {
+              const telegramEnabled = this.isTelegramEnabled(env, baseConfig);
+              const shouldSendOffline = this.shouldSendOfflineAlert(mergedServer);
+              if (mergedServer.status === 'offline') {
+                  console.log('[notify] offline check', {
+                      serverId: mergedServer.id,
+                      serverName: mergedServer.name,
+                      oldStatus,
+                      status: mergedServer.status,
+                      telegramEnabled,
+                      offlineSince: mergedServer.offlineSince,
+                      lastCheck: mergedServer.lastCheck,
+                      offlineMs: mergedServer.offlineSince ? mergedServer.lastCheck - mergedServer.offlineSince : 0,
+                      offlineAlertSentAt: mergedServer.offlineAlertSentAt,
+                      shouldSendOffline
+                  });
+              }
+              if (telegramEnabled && oldStatus === 'offline' && mergedServer.status === 'offline' && shouldSendOffline) {
                   notifyQueue.push({ message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status), kind: 'offline', serverId: mergedServer.id, lastCheck: mergedServer.lastCheck });
-              } else if (this.isTelegramEnabled(env, baseConfig) && oldStatus === 'offline' && mergedServer.status === 'online' && previouslySaved.offlineAlertSentAt) {
+              } else if (telegramEnabled && oldStatus === 'offline' && mergedServer.status === 'online' && previouslySaved.offlineAlertSentAt) {
                   notifyQueue.push({ message: this.buildStatusMessage({ ...mergedServer, offlineSince: previouslySaved.offlineSince || mergedServer.offlineSince }, oldStatus, mergedServer.status), kind: 'online' });
               }
               return mergedServer;
           })
       };
+      if (notifyQueue.length) {
+          console.log('[notify] queue prepared', notifyQueue.map((item) => ({ kind: item.kind, serverId: item.serverId || null, lastCheck: item.lastCheck || null })));
+      }
       const sendResults = await Promise.all(notifyQueue.map((item) => this.sendTelegram(env, item.message, baseConfig)));
       if (notifyQueue.length) {
+          console.log('[notify] send results', sendResults);
           let updated = false;
           for (const [index, ok] of sendResults.entries()) {
               const item = notifyQueue[index];
