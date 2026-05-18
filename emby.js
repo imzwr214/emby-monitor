@@ -2546,7 +2546,7 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.3',
+  APP_VERSION: '2026.05.19.4',
   APP_UPDATE_NOTES: [
       '公开页新增按 IP 去重的独立访问统计。',
       '更新检查改为带缓存穿透的 GitHub raw 拉取，避免刚推送的版本读到旧缓存。',
