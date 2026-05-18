@@ -1142,6 +1142,7 @@ const HTML_CONTENT = `
             const [isGeneratingPublicShare, setIsGeneratingPublicShare] = useState(false);
             const [publicShareIncludeProfile, setPublicShareIncludeProfile] = useState(false);
             const [publicShareLifetime, setPublicShareLifetime] = useState('hour');
+            const [publicShareHideCounts, setPublicShareHideCounts] = useState(false);
             const [deletingPublicShareToken, setDeletingPublicShareToken] = useState('');
             const [publicShareStats, setPublicShareStats] = useState([]);
             const [isLoadingPublicShareStats, setIsLoadingPublicShareStats] = useState(false);
@@ -1862,10 +1863,6 @@ const HTML_CONTENT = `
                             </div>
                         </header>
 
-                        <div className="mb-8 rounded-[1.4rem] border border-amber-200/80 bg-amber-50/85 px-4 py-3 text-[12px] font-bold text-amber-900 shadow-sm backdrop-blur-sm">
-                            请勿将公开页分享到墙内任何社交平台，否则后果自负。
-                        </div>
-
                         {/* Overview Stats */}
                         <div className="mobile-stats-strip grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                             {[
@@ -2183,6 +2180,9 @@ const HTML_CONTENT = `
                                                         ))}
                                                     </div>
                                                 )}
+                                                <div className="mt-4 border-t border-slate-200/70 pt-3 text-[10px] font-bold text-slate-400 leading-relaxed">
+                                                    更新建议：公开页头像展示、大陆 IP 限制和公开链接设置已完善，建议尽快更新。
+                                                </div>
                                             </div>
                                             <div className="flex gap-2">
                                                 <button onClick={() => checkForUpdate(true)} disabled={isCheckingUpdate || isApplyingUpdate} className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition-all shadow-sm">
@@ -2396,6 +2396,13 @@ const HTML_CONTENT = `
                                                     <input type="checkbox" checked={publicShareIncludeProfile} onChange={e => setPublicShareIncludeProfile(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
                                                     <span>公开页显示 Telegram 名称和头像</span>
                                                 </label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <button type="button" onClick={() => setPublicShareHideCounts(false)} className={"px-3 py-2 rounded-xl text-[11px] font-black border transition-colors " + (!publicShareHideCounts ? "bg-slate-800 text-white border-slate-800" : "bg-white/70 text-slate-600 border-white hover:bg-white")}>展示数量</button>
+                                                    <button type="button" onClick={() => setPublicShareHideCounts(true)} className={"px-3 py-2 rounded-xl text-[11px] font-black border transition-colors " + (publicShareHideCounts ? "bg-slate-800 text-white border-slate-800" : "bg-white/70 text-slate-600 border-white hover:bg-white")}>隐藏数量</button>
+                                                </div>
+                                                <div className="text-[10px] font-bold text-slate-400 leading-relaxed">
+                                                    隐藏后只保留前缀位数，例如 58690 变成 58***，500 变成 5**。
+                                                </div>
                                                 <div className="grid grid-cols-[1fr_44px] gap-2">
                                                     <input readOnly value={publicUrl} className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono outline-none" />
                                                     <button onClick={() => copyText(publicUrl, '公开大盘链接')} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
@@ -2424,6 +2431,13 @@ const HTML_CONTENT = `
                                                     {publicShareStats.map((item) => {
                                                         const itemExpired = Number(item.expiresAt) > 0 && Date.now() >= Number(item.expiresAt);
                                                         const itemUrl = item.url || (getShareBaseUrl() + '/public/' + item.token);
+                                                        const maskCount = (value) => {
+                                                            const text = String(Math.max(0, Number(value) || 0));
+                                                            if (!publicShareHideCounts) return text;
+                                                            if (text.length <= 1) return text + '**';
+                                                            if (text.length === 2) return text[0] + '**';
+                                                            return text.slice(0, 2) + '***';
+                                                        };
                                                         return (
                                                             <div key={item.token} className="rounded-2xl bg-white/70 border border-white p-3 space-y-2">
                                                                 <div className="flex items-center justify-between gap-3">
@@ -2434,6 +2448,20 @@ const HTML_CONTENT = `
                                                                     <div>生成：{formatStatTime(item.createdAt)}</div>
                                                                     <div>过期：{formatShareExpires(item.expiresAt)}</div>
                                                                     <div>最后访问：{formatStatTime(item.lastViewedAt)}</div>
+                                                                </div>
+                                                                <div className="grid grid-cols-3 gap-2 text-center">
+                                                                    <div className="rounded-xl bg-white/60 border border-white px-2 py-2">
+                                                                        <div className="text-[9px] font-black text-slate-400">电影</div>
+                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.movieCount)}</div>
+                                                                    </div>
+                                                                    <div className="rounded-xl bg-white/60 border border-white px-2 py-2">
+                                                                        <div className="text-[9px] font-black text-slate-400">剧集</div>
+                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.seriesCount)}</div>
+                                                                    </div>
+                                                                    <div className="rounded-xl bg-white/60 border border-white px-2 py-2">
+                                                                        <div className="text-[9px] font-black text-slate-400">总集数</div>
+                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.episodeCount)}</div>
+                                                                    </div>
                                                                 </div>
                                                                 <div className="grid grid-cols-[1fr_38px_38px] gap-2">
                                                                     <input readOnly value={itemUrl} className="w-full glass-input px-3 py-2 rounded-xl text-[11px] font-mono outline-none" />
@@ -2618,7 +2646,11 @@ export default {
       await this.recordPublicShareView(env, token, tokenRecord, request);
       const config = await this.loadConfig(env);
       const ownerProfile = tokenRecord.telegramProfile || null;
-      return new Response(this.buildPublicPage(config, ownerProfile), {
+      const publicPageState = {
+          ownerProfile,
+          hideCounts: Boolean(tokenRecord.hideCounts)
+      };
+      return new Response(this.buildPublicPage(config, publicPageState), {
           headers: {
               'Content-Type': 'text/html;charset=utf-8',
               'Cache-Control': 'no-store'
@@ -2635,7 +2667,7 @@ export default {
       const expiresAt = lifetime === 'forever' ? 0 : Date.now() + (60 * 60 * 1000);
       const config = body.includeTelegramProfile ? await this.loadConfig(env) : null;
       const profile = body.includeTelegramProfile ? await this.readTelegramChatProfile(env, config) : null;
-      await this.storePublicShareToken(env, token, expiresAt, { origin: url.origin || '', telegramProfile: profile });
+      await this.storePublicShareToken(env, token, expiresAt, { origin: url.origin || '', telegramProfile: profile, hideCounts: Boolean(body.hideCounts) });
       const baseUrl = url.origin || '';
       const publicUrl = baseUrl.replace(/\/$/, '') + '/public/' + token;
       return this.json({ ok: true, token, url: publicUrl, expiresAt });
@@ -2926,7 +2958,7 @@ export default {
       const combined = [firstName, lastName].filter(Boolean).join(' ').trim();
       if (combined) return combined;
       const username = String(chat.username || '').trim();
-      if (username) return '@' + username.replace(/^@+/, '');
+      if (username) return username.replace(/^@+/, '');
       return String(fallbackId || 'Telegram');
   },
 
@@ -2952,7 +2984,7 @@ export default {
           const profile = {
               chatId: String(tg.chatId),
               name: this.formatTelegramDisplayName(chat, tg.chatId),
-              username: chat.username ? '@' + String(chat.username).replace(/^@+/, '') : '',
+              username: chat.username ? String(chat.username).replace(/^@+/, '') : '',
               avatarDataUrl: ''
           };
           const photo = chat.photo && (chat.photo.small_file_id || chat.photo.big_file_id) ? chat.photo : null;
@@ -3025,7 +3057,8 @@ export default {
           origin: String(data.origin || ''),
           views: Number(data.views) || 0,
           lastViewedAt: Number(data.lastViewedAt) || 0,
-          telegramProfile: data.telegramProfile && typeof data.telegramProfile === 'object' ? data.telegramProfile : null
+          telegramProfile: data.telegramProfile && typeof data.telegramProfile === 'object' ? data.telegramProfile : null,
+          hideCounts: Boolean(data.hideCounts)
       };
       await env.EMBY_DB.put('public_share_token:' + token, JSON.stringify(record));
       return true;
@@ -3107,7 +3140,8 @@ export default {
                   expiresAt: Number(data.expiresAt) || 0,
                   views: Number(data.views) || 0,
                   lastViewedAt: Number(data.lastViewedAt) || 0,
-                  hasTelegramProfile: Boolean(data.telegramProfile && data.telegramProfile.name)
+                  hasTelegramProfile: Boolean(data.telegramProfile && data.telegramProfile.name),
+                  hideCounts: Boolean(data.hideCounts)
               });
           } catch(e) {}
       }
@@ -3181,8 +3215,17 @@ export default {
       return '';
   },
 
-  buildPublicPage(config, ownerProfile = null) {
+  buildPublicPage(config, pageState = {}) {
       const clean = this.sanitizeConfig(config);
+      const ownerProfile = pageState && pageState.ownerProfile ? pageState.ownerProfile : null;
+      const hideCounts = Boolean(pageState && pageState.hideCounts);
+      const maskCount = (value) => {
+          const text = String(Math.max(0, Number(value) || 0));
+          if (!hideCounts) return text;
+          if (text.length <= 1) return text + '**';
+          if (text.length === 2) return text[0] + '**';
+          return text.slice(0, 2) + '***';
+      };
       const cards = clean.servers.map((server) => {
           const media = server.mediaStats || {};
           const counts = media.counts || {};
@@ -3197,9 +3240,9 @@ export default {
                   '<div class="server-title"><h2>' + this.escapeHtml(server.name) + '</h2><div class="status-pill status-' + statusClass + '"><i></i>' + statusText + '</div></div>' +
               '</div>' +
               '<div class="metric-grid">' +
-                  '<div class="metric metric-movie"><span>电影</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : '--') + '</strong></div>' +
-                  '<div class="metric metric-series"><span>剧集</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.series)) ? Number(counts.series) : '--') + '</strong></div>' +
-                  '<div class="metric metric-episode"><span>总集数</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : '--') + '</strong></div>' +
+                  '<div class="metric metric-movie"><span>电影</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.movie)) ? maskCount(counts.movie) : '--') + '</strong></div>' +
+                  '<div class="metric metric-series"><span>剧集</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.series)) ? maskCount(counts.series) : '--') + '</strong></div>' +
+                  '<div class="metric metric-episode"><span>总集数</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.episode)) ? maskCount(counts.episode) : '--') + '</strong></div>' +
               '</div>' +
           '</article>';
       }).join('');
@@ -3208,17 +3251,15 @@ export default {
               '<div class="owner-avatar">' + (ownerProfile.avatarDataUrl ? '<img src="' + this.escapeHtml(ownerProfile.avatarDataUrl) + '" alt="">' : '<span>' + this.escapeHtml(String(ownerProfile.name).slice(0, 1)) + '</span>') + '</div>' +
               '<div class="owner-meta">' +
                   '<div class="owner-name">' + this.escapeHtml(ownerProfile.name) + '</div>' +
-                  '<div class="owner-subtitle">' + this.escapeHtml(ownerProfile.username || 'Telegram') + '</div>' +
               '</div>' +
           '</section>'
       ) : '';
       return '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#dce8fb"><title>Emby Status</title><style>' +
           'html{background:#dde8f8}body{background:#dde8f8;color:#334155;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;min-height:100vh}.bg-canvas{position:fixed;inset:0;z-index:0;background:linear-gradient(135deg,#e8eeff 0%,#dce8fb 30%,#ede4fb 60%,#e0effe 100%);overflow:hidden}.bg-canvas:after{content:"";position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox=%270 0 256 256%27 xmlns=%27http://www.w3.org/2000/svg%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.9%27 numOctaves=%274%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27 opacity=%270.04%27/%3E%3C/svg%3E");pointer-events:none;opacity:.6}.orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:.55}.orb-1{width:600px;height:600px;background:radial-gradient(circle,#a5c4fd,#c4b5fd);top:-15%;left:-10%}.orb-2{width:500px;height:500px;background:radial-gradient(circle,#fde68a,#fca5a5);top:40%;right:-8%}.orb-3{width:450px;height:450px;background:radial-gradient(circle,#6ee7f7,#a5f3cc);bottom:-10%;left:25%}.app-shell{position:relative;z-index:1;width:min(1180px,calc(100% - 32px));margin:0 auto;padding:42px 0 56px}.brand-title{font-size:clamp(28px,5vw,52px);line-height:1;margin:0;background:linear-gradient(100deg,#0f172a 0%,#0369a1 48%,#059669 100%);-webkit-background-clip:text;background-clip:text;color:transparent}.subtitle{margin:12px 0 30px;color:#64748b;font-weight:700}.public-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}.public-card{position:relative;overflow:hidden;border-radius:28px;padding:22px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(248,250,255,.48));backdrop-filter:blur(20px) saturate(170%);border:1px solid rgba(255,255,255,.82);box-shadow:0 12px 34px -26px rgba(15,23,42,.28),inset 0 1px 0 rgba(255,255,255,.88)}.public-card-online{border-color:rgba(16,185,129,.2)}.public-card-offline{border-color:rgba(244,63,94,.22)}.card-glow{position:absolute;right:-64px;top:-64px;width:180px;height:180px;border-radius:50%;filter:blur(50px);pointer-events:none}.card-glow-online{background:#10b98133}.card-glow-offline{background:#f43f5e38}.card-glow-unknown{background:#94a3b833}.public-card-head{display:flex;gap:14px;align-items:center;position:relative;z-index:1}.avatar{width:56px;height:56px;border-radius:18px;background:rgba(255,255,255,.8);border:1px solid #fff;box-shadow:0 1px 8px rgba(15,23,42,.08);display:flex;align-items:center;justify-content:center;overflow:hidden;color:#334155;font-size:24px;font-weight:900;flex-shrink:0}.avatar-img{width:100%;height:100%;object-fit:contain;padding:8px;box-sizing:border-box}.server-title{min-width:0;display:flex;flex-direction:column;gap:8px}.server-title h2{margin:0;color:#1e293b;font-size:18px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status-pill{width:max-content;display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.58);font-size:12px;font-weight:900;border:1px solid}.status-pill i{display:block;width:8px;height:8px;border-radius:50%}.status-online{color:#047857;border-color:#a7f3d0}.status-online i{background:#10b981}.status-offline{color:#be123c;border-color:#fecdd3}.status-offline i{background:#f43f5e}.status-unknown{color:#475569;border-color:#cbd5e1}.status-unknown i{background:#94a3b8}.metric-grid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:20px}.metric{border-radius:16px;background:rgba(255,255,255,.46);border:1px solid rgba(255,255,255,.72);padding:13px 8px;text-align:center}.metric span{display:block;color:#64748b;font-size:10px;font-weight:900;letter-spacing:.08em}.metric strong{display:block;margin-top:6px;color:#334155;font-size:20px;line-height:1;font-weight:900}.empty{padding:80px 20px;border-radius:28px;background:rgba(255,255,255,.58);border:1px solid rgba(255,255,255,.82);text-align:center;color:#64748b;font-weight:800}@media(max-width:640px){.app-shell{padding-top:30px}.public-grid{grid-template-columns:1fr}.brand-title{font-size:32px}}' +
-          '.public-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}.public-card{overflow:hidden}.owner-banner{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:14px 16px;border-radius:22px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.82);box-shadow:0 12px 34px -28px rgba(15,23,42,.2),inset 0 1px 0 rgba(255,255,255,.88)}.owner-avatar{width:42px;height:42px;border-radius:14px;flex-shrink:0;overflow:hidden;background:rgba(248,250,252,.95);border:1px solid rgba(226,232,240,.9);display:flex;align-items:center;justify-content:center;color:#475569;font-size:18px;font-weight:900}.owner-avatar img{width:100%;height:100%;object-fit:cover}.owner-meta{min-width:0;display:flex;flex-direction:column;gap:2px}.owner-name{font-size:13px;font-weight:900;color:#1e293b;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.owner-subtitle{font-size:11px;font-weight:700;color:#64748b;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.metric{min-width:0;overflow:visible;padding:12px 6px}.metric span{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;font-size:10px}.metric strong{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;letter-spacing:-0.02em}.metric-movie strong,.metric-series strong{font-size:20px}.metric-episode strong{font-size:15px;color:#64748b;font-weight:800}.public-footer{margin-top:28px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700}.public-footer a{color:inherit;text-decoration:none}.public-footer a:hover{color:#64748b}@media(max-width:640px){.public-grid{grid-template-columns:1fr}}</style></head><body><div class="bg-canvas"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div><main class="app-shell"><h1 class="brand-title">Emby Status</h1><p class="subtitle">状态数据由各服务器公开接口提供</p>' +
+          '.public-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}.public-card{overflow:hidden}.owner-banner{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:14px 16px;border-radius:22px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.82);box-shadow:0 12px 34px -28px rgba(15,23,42,.2),inset 0 1px 0 rgba(255,255,255,.88)}.owner-avatar{width:42px;height:42px;border-radius:14px;flex-shrink:0;overflow:hidden;background:rgba(248,250,252,.95);border:1px solid rgba(226,232,240,.9);display:flex;align-items:center;justify-content:center;color:#475569;font-size:18px;font-weight:900}.owner-avatar img{width:100%;height:100%;object-fit:cover}.owner-meta{min-width:0;display:flex;flex-direction:column;gap:2px}.owner-name{font-size:13px;font-weight:900;color:#1e293b;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.metric{min-width:0;overflow:visible;padding:12px 6px}.metric span{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;font-size:10px}.metric strong{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;letter-spacing:-0.02em}.metric-movie strong,.metric-series strong{font-size:20px}.metric-episode strong{font-size:15px;color:#64748b;font-weight:800}.public-footer{margin-top:28px;padding-top:14px;border-top:1px solid rgba(148,163,184,.22);text-align:center;color:#94a3b8;font-size:11px;font-weight:700;line-height:1.6}.public-footer a{color:inherit;text-decoration:none}.public-footer a:hover{color:#64748b}.public-footnote{margin-top:6px;font-size:10px;font-weight:700;color:#cbd5e1}@media(max-width:640px){.public-grid{grid-template-columns:1fr}}</style></head><body><div class="bg-canvas"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div><main class="app-shell"><h1 class="brand-title">Emby Status</h1><p class="subtitle">状态数据由各服务器公开接口提供</p>' +
           ownerHtml +
-          '<div style="margin:0 0 18px;padding:12px 14px;border:1px solid rgba(251,191,36,.35);border-radius:18px;background:rgba(255,251,235,.88);color:#92400e;font-size:12px;font-weight:800;line-height:1.5;">请勿将公开页分享到墙内任何社交平台，否则后果自负。</div>' +
           (cards ? '<section class="public-grid">' + cards + '</section>' : '<div class="empty">暂无服务器</div>') +
-          '<footer class="public-footer"><a href="https://github.com/pototazhang/emby-js" target="_blank" rel="noopener noreferrer">项目地址：github.com/pototazhang/emby-js</a></footer>' +
+          '<footer class="public-footer"><div>项目地址：<a href="https://github.com/pototazhang/emby-js" target="_blank" rel="noopener noreferrer">github.com/pototazhang/emby-js</a></div><div class="public-footnote">更新建议：公开页头像展示、大陆 IP 限制和公开链接设置已完善，建议尽快更新。</div></footer>' +
           '</main></body></html>';
   },
 
