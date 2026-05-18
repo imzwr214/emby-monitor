@@ -1247,11 +1247,11 @@ const HTML_CONTENT = `
                 return nextUpdatedAt;
             };
 
-            const manualPing = async (currentServers = servers, requestUpdatedAt = configUpdatedAt) => {
+            const manualPing = async (currentServers = servers, requestUpdatedAt = configUpdatedAt, options = {}) => {
                 if (isRefreshing || !currentServers.length) return;
                 setIsRefreshing(true);
                 try {
-                    const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                    const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia) }) });
                     if (!res.ok) throw new Error('测速接口异常');
                     const updatedData = await res.json();
                     setServers(updatedData.servers);
@@ -1661,13 +1661,13 @@ const HTML_CONTENT = `
                                     <Icons.Plus className="w-4 h-4" /> 添加服务器
                                 </button>
                                 <button
-                                    onClick={() => manualPing(servers)}
+                                    onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: true })}
                                     disabled={isRefreshing}
                                     className="mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap"
                                 >
                                     <Icons.RefreshCw className={"w-4 h-4 " + (isRefreshing ? 'animate-spin' : '')} />
                                     <span className="inline-flex items-center justify-center tabular-nums">
-                                        {isRefreshing ? '正在刷新...' : '刷新状态 (' + String(autoRefreshSeconds).padStart(2, '0') + 's)'}
+                                        {isRefreshing ? '正在刷新...' : '刷新状态/资源 (' + String(autoRefreshSeconds).padStart(2, '0') + 's)'}
                                     </span>
                                 </button>
                             </div>
@@ -2298,8 +2298,9 @@ export default {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
 
+      const requestBody = await request.json().catch(() => ({}));
       const currentConfig = await this.loadConfig(env);
-      const updatedConfig = await this.runProbeLogic(env, currentConfig);
+      const updatedConfig = await this.runProbeLogic(env, currentConfig, { forceMedia: Boolean(requestBody.forceMedia) });
       return this.json({ ...updatedConfig, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
     }
 
@@ -2907,8 +2908,9 @@ export default {
       return server;
   },
 
-  async runProbeLogic(env, config) {
+  async runProbeLogic(env, config, options = {}) {
       if (!config || !config.servers || config.servers.length === 0) return config;
+      const forceMedia = Boolean(options.forceMedia);
 
       const probePromises = config.servers.map(async (s) => {
           const previousStatus = s.status;
@@ -2922,7 +2924,7 @@ export default {
               if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
               s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
               s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-              await this.refreshMediaStatsIfNeeded(s, !s.mediaStats || !s.mediaStats.lastCheck);
+              await this.refreshMediaStatsIfNeeded(s, forceMedia || !s.mediaStats || !s.mediaStats.lastCheck);
               s.previousStatus = previousStatus; return s;
           }
           const targetUrl = target.toString().replace(/\/$/, '');
@@ -2944,7 +2946,7 @@ export default {
           if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
           s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
           s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-          await this.refreshMediaStatsIfNeeded(s, !s.mediaStats || !s.mediaStats.lastCheck);
+          await this.refreshMediaStatsIfNeeded(s, forceMedia || !s.mediaStats || !s.mediaStats.lastCheck);
           s.previousStatus = previousStatus; return s;
       });
 
