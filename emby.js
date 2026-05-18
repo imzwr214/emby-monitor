@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.6';
+        const APP_VERSION = '2026.05.19.7';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2431,12 +2431,12 @@ const HTML_CONTENT = `
                                                     {publicShareStats.map((item) => {
                                                         const itemExpired = Number(item.expiresAt) > 0 && Date.now() >= Number(item.expiresAt);
                                                         const itemUrl = item.url || (getShareBaseUrl() + '/public/' + item.token);
-                                                        const maskCount = (value) => {
+                                                        const maskCount = (value, hide = false) => {
                                                             const text = String(Math.max(0, Number(value) || 0));
-                                                            if (!publicShareHideCounts) return text;
+                                                            if (!hide) return text;
                                                             if (text.length <= 1) return text + '**';
-                                                            if (text.length === 2) return text[0] + '**';
-                                                            return text.slice(0, 2) + '***';
+                                                            const keep = text.length >= 5 ? 2 : 1;
+                                                            return text.slice(0, keep) + '*'.repeat(Math.max(2, text.length - keep));
                                                         };
                                                         return (
                                                             <div key={item.token} className="rounded-2xl bg-white/70 border border-white p-3 space-y-2">
@@ -2452,15 +2452,15 @@ const HTML_CONTENT = `
                                                                 <div className="grid grid-cols-3 gap-2 text-center">
                                                                     <div className="rounded-xl bg-white/60 border border-white px-2 py-2">
                                                                         <div className="text-[9px] font-black text-slate-400">电影</div>
-                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.movieCount)}</div>
+                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.movieCount, item.hideCounts)}</div>
                                                                     </div>
                                                                     <div className="rounded-xl bg-white/60 border border-white px-2 py-2">
                                                                         <div className="text-[9px] font-black text-slate-400">剧集</div>
-                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.seriesCount)}</div>
+                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.seriesCount, item.hideCounts)}</div>
                                                                     </div>
                                                                     <div className="rounded-xl bg-white/60 border border-white px-2 py-2">
                                                                         <div className="text-[9px] font-black text-slate-400">总集数</div>
-                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.episodeCount)}</div>
+                                                                        <div className="mt-1 text-sm font-black text-slate-700 tabular-nums">{maskCount(item.episodeCount, item.hideCounts)}</div>
                                                                     </div>
                                                                 </div>
                                                                 <div className="grid grid-cols-[1fr_38px_38px] gap-2">
@@ -2582,8 +2582,9 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.6',
+  APP_VERSION: '2026.05.19.7',
   APP_UPDATE_NOTES: [
+      '修复公开页隐藏数量设置在新分享链接中未稳定生效的问题。',
       '修复公开页隐藏媒体库数量设置没有写入新分享链接的问题。',
       '更新面板显示远端版本、更新源、错误信息和缺失的自更新配置。',
       '更新版本解析只读取 Worker 对象版本，避免被页面模板版本干扰。',
@@ -2649,7 +2650,10 @@ export default {
       const ownerProfile = tokenRecord.telegramProfile || null;
       const publicPageState = {
           ownerProfile,
-          hideCounts: Boolean(tokenRecord.hideCounts)
+          hideCounts: Boolean(tokenRecord.hideCounts),
+          movieCount: Number(tokenRecord.movieCount) || 0,
+          seriesCount: Number(tokenRecord.seriesCount) || 0,
+          episodeCount: Number(tokenRecord.episodeCount) || 0
       };
       return new Response(this.buildPublicPage(config, publicPageState), {
           headers: {
@@ -2666,9 +2670,24 @@ export default {
       const lifetime = body.lifetime === 'forever' ? 'forever' : 'hour';
       const token = this.generatePublicShareToken();
       const expiresAt = lifetime === 'forever' ? 0 : Date.now() + (60 * 60 * 1000);
-      const config = body.includeTelegramProfile ? await this.loadConfig(env) : null;
+      const config = await this.loadConfig(env);
+      const clean = this.sanitizeConfig(config);
+      const mediaCounts = clean.servers.reduce((acc, server) => {
+          const counts = server && server.mediaStats && server.mediaStats.counts ? server.mediaStats.counts : {};
+          acc.movieCount += Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : 0;
+          acc.seriesCount += Number.isFinite(Number(counts.series)) ? Number(counts.series) : 0;
+          acc.episodeCount += Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : 0;
+          return acc;
+      }, { movieCount: 0, seriesCount: 0, episodeCount: 0 });
       const profile = body.includeTelegramProfile ? await this.readTelegramChatProfile(env, config) : null;
-      await this.storePublicShareToken(env, token, expiresAt, { origin: url.origin || '', telegramProfile: profile, hideCounts: Boolean(body.hideCounts) });
+      await this.storePublicShareToken(env, token, expiresAt, {
+          origin: url.origin || '',
+          telegramProfile: profile,
+          hideCounts: Boolean(body.hideCounts),
+          movieCount: mediaCounts.movieCount,
+          seriesCount: mediaCounts.seriesCount,
+          episodeCount: mediaCounts.episodeCount
+      });
       const baseUrl = url.origin || '';
       const publicUrl = baseUrl.replace(/\/$/, '') + '/public/' + token;
       return this.json({ ok: true, token, url: publicUrl, expiresAt });
@@ -3220,12 +3239,17 @@ export default {
       const clean = this.sanitizeConfig(config);
       const ownerProfile = pageState && pageState.ownerProfile ? pageState.ownerProfile : null;
       const hideCounts = Boolean(pageState && pageState.hideCounts);
+      const sharedCounts = {
+          movie: Number(pageState.movieCount) || 0,
+          series: Number(pageState.seriesCount) || 0,
+          episode: Number(pageState.episodeCount) || 0
+      };
       const maskCount = (value) => {
           const text = String(Math.max(0, Number(value) || 0));
           if (!hideCounts) return text;
           if (text.length <= 1) return text + '**';
-          if (text.length === 2) return text[0] + '**';
-          return text.slice(0, 2) + '***';
+          const keep = text.length >= 5 ? 2 : 1;
+          return text.slice(0, keep) + '*'.repeat(Math.max(2, text.length - keep));
       };
       const cards = clean.servers.map((server) => {
           const media = server.mediaStats || {};
@@ -3238,12 +3262,12 @@ export default {
               '<div class="card-glow card-glow-' + statusClass + '"></div>' +
               '<div class="public-card-head">' +
                   '<div class="avatar">' + iconHtml + '</div>' +
-                  '<div class="server-title"><h2>' + this.escapeHtml(server.name) + '</h2><div class="status-pill status-' + statusClass + '"><i></i>' + statusText + '</div></div>' +
+              '<div class="server-title"><h2>' + this.escapeHtml(server.name) + '</h2><div class="status-pill status-' + statusClass + '"><i></i>' + statusText + '</div></div>' +
               '</div>' +
               '<div class="metric-grid">' +
-                  '<div class="metric metric-movie"><span>电影</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.movie)) ? maskCount(counts.movie) : '--') + '</strong></div>' +
-                  '<div class="metric metric-series"><span>剧集</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.series)) ? maskCount(counts.series) : '--') + '</strong></div>' +
-                  '<div class="metric metric-episode"><span>总集数</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.episode)) ? maskCount(counts.episode) : '--') + '</strong></div>' +
+                  '<div class="metric metric-movie"><span>电影</span><strong>' + this.escapeHtml(Number.isFinite(Number(sharedCounts.movie)) ? maskCount(sharedCounts.movie) : '--') + '</strong></div>' +
+                  '<div class="metric metric-series"><span>剧集</span><strong>' + this.escapeHtml(Number.isFinite(Number(sharedCounts.series)) ? maskCount(sharedCounts.series) : '--') + '</strong></div>' +
+                  '<div class="metric metric-episode"><span>总集数</span><strong>' + this.escapeHtml(Number.isFinite(Number(sharedCounts.episode)) ? maskCount(sharedCounts.episode) : '--') + '</strong></div>' +
               '</div>' +
           '</article>';
       }).join('');
