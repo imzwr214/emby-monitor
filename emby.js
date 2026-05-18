@@ -2957,7 +2957,7 @@ export default {
       if (!items.length) return ['地址1 未知 ❌'];
       return items.map((item, index) => {
           const latency = item.ok && item.latency ? ' ' + Math.round(item.latency) + 'ms' : '';
-          return '地址' + (index + 1) + ' ' + item.url + ' ' + (item.ok ? '✅' : '❌') + latency;
+          return '地址' + (index + 1) + '：' + this.maskNotifyUrl(item.url) + ' ' + (item.ok ? '✅' : '❌') + latency;
       });
   },
 
@@ -2971,7 +2971,7 @@ export default {
           return ['🟢 Emby 服务器已恢复', '', '服务器：' + server.name, '地址：' + maskedUrl, '状态：离线 -> 在线', '离线时长：' + offlineDuration, '恢复时间：' + checkedAt].join('\n');
       }
       return [
-          '🔴 ' + server.name + ' 离线', '', ...this.formatAddressProbeResults(server.addressProbeResults), '', '服务器：' + server.name, '地址：' + maskedUrl, '状态：离线', '离线时长：已持续 ' + offlineDuration, '离线时间：' + this.formatNotifyTime(server.offlineSince), '',
+          '🔴 ' + server.name + ' 离线', '', '服务器：' + server.name, '地址：' + maskedUrl, ...this.formatAddressProbeResults(server.addressProbeResults), '状态：离线', '离线时长：已持续 ' + offlineDuration, '离线时间：' + this.formatNotifyTime(server.offlineSince), '',
           '近24小时：离线 ' + historyStats.offlineEvents + ' 次', '近期可用率：' + this.formatNotifyUptime(historyStats.uptime)
       ].join('\n');
   },
