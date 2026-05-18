@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.3';
+        const APP_VERSION = '2026.05.19.4';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -935,6 +935,7 @@ const HTML_CONTENT = `
             X: (p) => <Icon {...p} path='<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>' />,
             Copy: (p) => <Icon {...p} path='<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>' />,
             Share2: (p) => <Icon {...p} path='<circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>' />,
+            Trash2: (p) => <Icon {...p} path='<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>' />,
             ExternalLink: (p) => <Icon {...p} path='<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line>' />,
             MessageSquare: (p) => <Icon {...p} path='<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' />,
             ImageIcon: (p) => <Icon {...p} path='<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>' />,
@@ -1139,6 +1140,9 @@ const HTML_CONTENT = `
             const [publicShareLink, setPublicShareLink] = useState('');
             const [publicShareExpiresAt, setPublicShareExpiresAt] = useState(0);
             const [isGeneratingPublicShare, setIsGeneratingPublicShare] = useState(false);
+            const [publicShareIncludeProfile, setPublicShareIncludeProfile] = useState(false);
+            const [publicShareLifetime, setPublicShareLifetime] = useState('hour');
+            const [deletingPublicShareToken, setDeletingPublicShareToken] = useState('');
             const [publicShareStats, setPublicShareStats] = useState([]);
             const [isLoadingPublicShareStats, setIsLoadingPublicShareStats] = useState(false);
             const [cardShareLinks, setCardShareLinks] = useState({});
@@ -1321,6 +1325,10 @@ const HTML_CONTENT = `
                 const time = Number(value) || 0;
                 return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '--';
             };
+            const formatShareExpires = (value) => {
+                const time = Number(value) || 0;
+                return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '永久有效';
+            };
             const copyText = async (text, label = '内容') => {
                 try {
                     await navigator.clipboard.writeText(text);
@@ -1342,7 +1350,11 @@ const HTML_CONTENT = `
             const generatePublicShareLink = async () => {
                 setIsGeneratingPublicShare(true);
                 try {
-                    const res = await apiFetch('/api/public/share-token', { method: 'POST' });
+                    const res = await apiFetch('/api/public/share-token', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ includeTelegramProfile: publicShareIncludeProfile, lifetime: publicShareLifetime })
+                    });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok || !data.ok || !data.url) throw new Error(data.error || '生成公开链接失败');
                     setPublicShareLink(data.url);
@@ -1352,6 +1364,26 @@ const HTML_CONTENT = `
                     alert(e.message || '生成公开链接失败');
                 } finally {
                     setIsGeneratingPublicShare(false);
+                }
+            };
+
+            const deletePublicShareLink = async (token) => {
+                if (!token) return;
+                if (!window.confirm('删除这个公开页链接？删除后访问会立即失效。')) return;
+                setDeletingPublicShareToken(token);
+                try {
+                    const res = await apiFetch('/api/public/share-token/' + encodeURIComponent(token), { method: 'DELETE' });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok) throw new Error(data.error || '删除公开链接失败');
+                    setPublicShareStats((items) => items.filter((item) => item.token !== token));
+                    if (publicShareLink && publicShareLink.endsWith('/public/' + token)) {
+                        setPublicShareLink('');
+                        setPublicShareExpiresAt(0);
+                    }
+                } catch(e) {
+                    alert(e.message || '删除公开链接失败');
+                } finally {
+                    setDeletingPublicShareToken('');
                 }
             };
 
@@ -2348,6 +2380,14 @@ const HTML_CONTENT = `
                                                         <Icons.Share2 className="w-3.5 h-3.5" /> {isGeneratingPublicShare ? '生成中...' : (publicShareLink ? '重新生成' : '生成')}
                                                     </button>
                                                 </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <button type="button" onClick={() => setPublicShareLifetime('hour')} className={"px-3 py-2 rounded-xl text-[11px] font-black border transition-colors " + (publicShareLifetime === 'hour' ? "bg-slate-800 text-white border-slate-800" : "bg-white/70 text-slate-600 border-white hover:bg-white")}>1 小时有效</button>
+                                                    <button type="button" onClick={() => setPublicShareLifetime('forever')} className={"px-3 py-2 rounded-xl text-[11px] font-black border transition-colors " + (publicShareLifetime === 'forever' ? "bg-slate-800 text-white border-slate-800" : "bg-white/70 text-slate-600 border-white hover:bg-white")}>永久有效</button>
+                                                </div>
+                                                <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600">
+                                                    <input type="checkbox" checked={publicShareIncludeProfile} onChange={e => setPublicShareIncludeProfile(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                                                    <span>公开页显示 Telegram 名称和头像</span>
+                                                </label>
                                                 <div className="grid grid-cols-[1fr_44px] gap-2">
                                                     <input readOnly value={publicUrl} className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono outline-none" />
                                                     <button onClick={() => copyText(publicUrl, '公开大盘链接')} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
@@ -2355,8 +2395,8 @@ const HTML_CONTENT = `
                                                     </button>
                                                 </div>
                                                 <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between gap-3">
-                                                    <span>有效期：1 小时</span>
-                                                    {publicShareExpiresAt && <span>{shareExpired ? '已过期' : '过期时间：' + shareExpiresText}</span>}
+                                                    <span>有效期：{publicShareLifetime === 'forever' ? '永久' : '1 小时'}</span>
+                                                    {publicShareExpiresAt ? <span>{shareExpired ? '已过期' : '过期时间：' + shareExpiresText}</span> : (publicShareLink ? <span>永久有效</span> : null)}
                                                 </div>
                                             </div>
 
@@ -2380,17 +2420,20 @@ const HTML_CONTENT = `
                                                             <div key={item.token} className="rounded-2xl bg-white/70 border border-white p-3 space-y-2">
                                                                 <div className="flex items-center justify-between gap-3">
                                                                     <div className="text-sm font-black text-slate-700 tabular-nums">{Number(item.views) || 0} 个独立 IP</div>
-                                                                    <span className={"px-2 py-1 rounded-full text-[10px] font-black " + (itemExpired ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-600")}>{itemExpired ? '已过期' : '有效中'}</span>
+                                                                    <span className={"px-2 py-1 rounded-full text-[10px] font-black " + (itemExpired ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-600")}>{itemExpired ? '已过期' : (Number(item.expiresAt) ? '有效中' : '永久')}</span>
                                                                 </div>
                                                                 <div className="text-[11px] font-bold text-slate-500 space-y-1">
                                                                     <div>生成：{formatStatTime(item.createdAt)}</div>
-                                                                    <div>过期：{formatStatTime(item.expiresAt)}</div>
+                                                                    <div>过期：{formatShareExpires(item.expiresAt)}</div>
                                                                     <div>最后访问：{formatStatTime(item.lastViewedAt)}</div>
                                                                 </div>
-                                                                <div className="grid grid-cols-[1fr_38px] gap-2">
+                                                                <div className="grid grid-cols-[1fr_38px_38px] gap-2">
                                                                     <input readOnly value={itemUrl} className="w-full glass-input px-3 py-2 rounded-xl text-[11px] font-mono outline-none" />
                                                                     <button onClick={() => copyText(itemUrl, '公开页链接')} className="w-[38px] h-[38px] flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
                                                                         <Icons.Copy className="w-4 h-4" />
+                                                                    </button>
+                                                                    <button onClick={() => deletePublicShareLink(item.token)} disabled={deletingPublicShareToken === item.token} className="w-[38px] h-[38px] flex items-center justify-center rounded-xl bg-white text-slate-500 hover:text-rose-600 border border-slate-200 transition-colors disabled:opacity-50">
+                                                                        <Icons.Trash2 className="w-4 h-4" />
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -2556,12 +2599,16 @@ export default {
     }
 
     if (request.method === 'GET' && /^\/public\/[a-f0-9]{24}$/i.test(url.pathname)) {
+      if (this.shouldBlockPublicShareAccess(request)) {
+        return new Response('海外敏感内容，大陆ip禁止访问', { status: 403, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+      }
       const token = url.pathname.split('/').pop();
       const tokenRecord = await this.getPublicShareToken(env, token);
-      if (!tokenRecord || tokenRecord.expiresAt <= Date.now()) return new Response('Link expired', { status: 410, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+      if (!tokenRecord || (Number(tokenRecord.expiresAt) > 0 && Number(tokenRecord.expiresAt) <= Date.now())) return new Response('Link expired', { status: 410, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
       await this.recordPublicShareView(env, token, tokenRecord, request);
       const config = await this.loadConfig(env);
-      return new Response(this.buildPublicPage(config), {
+      const ownerProfile = tokenRecord.telegramProfile || null;
+      return new Response(this.buildPublicPage(config, ownerProfile), {
           headers: {
               'Content-Type': 'text/html;charset=utf-8',
               'Cache-Control': 'no-store'
@@ -2572,12 +2619,24 @@ export default {
     if (url.pathname === '/api/public/share-token' && request.method === 'POST') {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
+      const body = await request.json().catch(() => ({}));
+      const lifetime = body.lifetime === 'forever' ? 'forever' : 'hour';
       const token = this.generatePublicShareToken();
-      const expiresAt = Date.now() + (60 * 60 * 1000);
-      await this.storePublicShareToken(env, token, expiresAt, { origin: url.origin || '' });
+      const expiresAt = lifetime === 'forever' ? 0 : Date.now() + (60 * 60 * 1000);
+      const config = body.includeTelegramProfile ? await this.loadConfig(env) : null;
+      const profile = body.includeTelegramProfile ? await this.readTelegramChatProfile(env, config) : null;
+      await this.storePublicShareToken(env, token, expiresAt, { origin: url.origin || '', telegramProfile: profile });
       const baseUrl = url.origin || '';
       const publicUrl = baseUrl.replace(/\/$/, '') + '/public/' + token;
       return this.json({ ok: true, token, url: publicUrl, expiresAt });
+    }
+
+    const publicTokenApiMatch = url.pathname.match(/^\/api\/public\/share-token\/([a-f0-9]{24})$/i);
+    if (publicTokenApiMatch && request.method === 'DELETE') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+      await this.deletePublicShareToken(env, publicTokenApiMatch[1]);
+      return this.json({ ok: true });
     }
 
     if (url.pathname === '/api/public/share-stats' && request.method === 'GET') {
@@ -2781,6 +2840,11 @@ export default {
       return raw;
   },
 
+  shouldBlockPublicShareAccess(request) {
+      const country = String(request.headers.get('CF-IPCountry') || '').trim().toUpperCase();
+      return country === 'CN';
+  },
+
   getHostnameFromBaseUrl(value) {
       try { return new URL(value).hostname.toLowerCase(); } catch(e) { return ''; }
   },
@@ -2831,6 +2895,81 @@ export default {
       return false;
   },
 
+  bytesToBase64(bytes) {
+      if (!bytes || typeof bytes.length !== 'number') return '';
+      if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes, i, i + chunkSize));
+      }
+      if (typeof btoa === 'function') return btoa(binary);
+      return '';
+  },
+
+  formatTelegramDisplayName(chat, fallbackId = '') {
+      if (!chat || typeof chat !== 'object') return String(fallbackId || 'Telegram');
+      const title = String(chat.title || '').trim();
+      if (title) return title;
+      const firstName = String(chat.first_name || '').trim();
+      const lastName = String(chat.last_name || '').trim();
+      const combined = [firstName, lastName].filter(Boolean).join(' ').trim();
+      if (combined) return combined;
+      const username = String(chat.username || '').trim();
+      if (username) return '@' + username.replace(/^@+/, '');
+      return String(fallbackId || 'Telegram');
+  },
+
+  async readTelegramChatProfile(env, config = {}) {
+      const tg = this.currentTelegramConfig(env, config);
+      if (!tg.enabled || !tg.botToken || !tg.chatId) return null;
+      const cacheKey = 'telegram_public_profile:' + String(tg.chatId);
+      if (env.EMBY_DB) {
+          const cached = await env.EMBY_DB.get(cacheKey);
+          if (cached) {
+              try {
+                  const data = JSON.parse(cached);
+                  if (data && typeof data === 'object' && data.name) return data;
+              } catch(e) {}
+          }
+      }
+      try {
+          const apiBase = 'https://api.telegram.org/bot' + tg.botToken;
+          const chatRes = await fetch(apiBase + '/getChat?chat_id=' + encodeURIComponent(tg.chatId));
+          const chatJson = await chatRes.json().catch(() => ({}));
+          if (!chatRes.ok || !chatJson.ok || !chatJson.result) return null;
+          const chat = chatJson.result;
+          const profile = {
+              chatId: String(tg.chatId),
+              name: this.formatTelegramDisplayName(chat, tg.chatId),
+              username: chat.username ? '@' + String(chat.username).replace(/^@+/, '') : '',
+              avatarDataUrl: ''
+          };
+          const photo = chat.photo && (chat.photo.small_file_id || chat.photo.big_file_id) ? chat.photo : null;
+          if (photo) {
+              const fileId = photo.small_file_id || photo.big_file_id;
+              const fileRes = await fetch(apiBase + '/getFile?file_id=' + encodeURIComponent(fileId));
+              const fileJson = await fileRes.json().catch(() => ({}));
+              if (fileRes.ok && fileJson.ok && fileJson.result && fileJson.result.file_path) {
+                  const avatarRes = await fetch('https://api.telegram.org/file/bot' + tg.botToken + '/' + fileJson.result.file_path);
+                  if (avatarRes.ok) {
+                      const contentType = avatarRes.headers.get('Content-Type') || 'image/jpeg';
+                      const avatarBytes = new Uint8Array(await avatarRes.arrayBuffer());
+                      const base64 = this.bytesToBase64(avatarBytes);
+                      if (base64) profile.avatarDataUrl = 'data:' + contentType + ';base64,' + base64;
+                  }
+              }
+          }
+          if (env.EMBY_DB) {
+              await env.EMBY_DB.put(cacheKey, JSON.stringify(profile), { expirationTtl: 24 * 60 * 60 });
+          }
+          return profile;
+      } catch(e) {
+          console.log('[public-share] telegram profile lookup failed', e && e.message ? e.message : String(e));
+      }
+      return null;
+  },
+
   formatNotifyTime(time) {
       if (!time) return '未知';
       return new Date(time).toLocaleString('zh-CN', {
@@ -2875,9 +3014,16 @@ export default {
           expiresAt: Number(expiresAt) || 0,
           origin: String(data.origin || ''),
           views: Number(data.views) || 0,
-          lastViewedAt: Number(data.lastViewedAt) || 0
+          lastViewedAt: Number(data.lastViewedAt) || 0,
+          telegramProfile: data.telegramProfile && typeof data.telegramProfile === 'object' ? data.telegramProfile : null
       };
       await env.EMBY_DB.put('public_share_token:' + token, JSON.stringify(record));
+      return true;
+  },
+
+  async deletePublicShareToken(env, token) {
+      if (!env.EMBY_DB || !token) return false;
+      await env.EMBY_DB.delete('public_share_token:' + token);
       return true;
   },
 
@@ -2950,7 +3096,8 @@ export default {
                   createdAt: Number(data.createdAt) || 0,
                   expiresAt: Number(data.expiresAt) || 0,
                   views: Number(data.views) || 0,
-                  lastViewedAt: Number(data.lastViewedAt) || 0
+                  lastViewedAt: Number(data.lastViewedAt) || 0,
+                  hasTelegramProfile: Boolean(data.telegramProfile && data.telegramProfile.name)
               });
           } catch(e) {}
       }
@@ -3024,7 +3171,7 @@ export default {
       return '';
   },
 
-  buildPublicPage(config) {
+  buildPublicPage(config, ownerProfile = null) {
       const clean = this.sanitizeConfig(config);
       const cards = clean.servers.map((server) => {
           const media = server.mediaStats || {};
@@ -3046,9 +3193,19 @@ export default {
               '</div>' +
           '</article>';
       }).join('');
+      const ownerHtml = ownerProfile && ownerProfile.name ? (
+          '<section class="owner-banner">' +
+              '<div class="owner-avatar">' + (ownerProfile.avatarDataUrl ? '<img src="' + this.escapeHtml(ownerProfile.avatarDataUrl) + '" alt="">' : '<span>' + this.escapeHtml(String(ownerProfile.name).slice(0, 1)) + '</span>') + '</div>' +
+              '<div class="owner-meta">' +
+                  '<div class="owner-name">' + this.escapeHtml(ownerProfile.name) + '</div>' +
+                  '<div class="owner-subtitle">' + this.escapeHtml(ownerProfile.username || 'Telegram') + '</div>' +
+              '</div>' +
+          '</section>'
+      ) : '';
       return '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#dce8fb"><title>Emby Status</title><style>' +
           'html{background:#dde8f8}body{background:#dde8f8;color:#334155;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;min-height:100vh}.bg-canvas{position:fixed;inset:0;z-index:0;background:linear-gradient(135deg,#e8eeff 0%,#dce8fb 30%,#ede4fb 60%,#e0effe 100%);overflow:hidden}.bg-canvas:after{content:"";position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox=%270 0 256 256%27 xmlns=%27http://www.w3.org/2000/svg%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.9%27 numOctaves=%274%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27 opacity=%270.04%27/%3E%3C/svg%3E");pointer-events:none;opacity:.6}.orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:.55}.orb-1{width:600px;height:600px;background:radial-gradient(circle,#a5c4fd,#c4b5fd);top:-15%;left:-10%}.orb-2{width:500px;height:500px;background:radial-gradient(circle,#fde68a,#fca5a5);top:40%;right:-8%}.orb-3{width:450px;height:450px;background:radial-gradient(circle,#6ee7f7,#a5f3cc);bottom:-10%;left:25%}.app-shell{position:relative;z-index:1;width:min(1180px,calc(100% - 32px));margin:0 auto;padding:42px 0 56px}.brand-title{font-size:clamp(28px,5vw,52px);line-height:1;margin:0;background:linear-gradient(100deg,#0f172a 0%,#0369a1 48%,#059669 100%);-webkit-background-clip:text;background-clip:text;color:transparent}.subtitle{margin:12px 0 30px;color:#64748b;font-weight:700}.public-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}.public-card{position:relative;overflow:hidden;border-radius:28px;padding:22px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(248,250,255,.48));backdrop-filter:blur(20px) saturate(170%);border:1px solid rgba(255,255,255,.82);box-shadow:0 12px 34px -26px rgba(15,23,42,.28),inset 0 1px 0 rgba(255,255,255,.88)}.public-card-online{border-color:rgba(16,185,129,.2)}.public-card-offline{border-color:rgba(244,63,94,.22)}.card-glow{position:absolute;right:-64px;top:-64px;width:180px;height:180px;border-radius:50%;filter:blur(50px);pointer-events:none}.card-glow-online{background:#10b98133}.card-glow-offline{background:#f43f5e38}.card-glow-unknown{background:#94a3b833}.public-card-head{display:flex;gap:14px;align-items:center;position:relative;z-index:1}.avatar{width:56px;height:56px;border-radius:18px;background:rgba(255,255,255,.8);border:1px solid #fff;box-shadow:0 1px 8px rgba(15,23,42,.08);display:flex;align-items:center;justify-content:center;overflow:hidden;color:#334155;font-size:24px;font-weight:900;flex-shrink:0}.avatar-img{width:100%;height:100%;object-fit:contain;padding:8px;box-sizing:border-box}.server-title{min-width:0;display:flex;flex-direction:column;gap:8px}.server-title h2{margin:0;color:#1e293b;font-size:18px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status-pill{width:max-content;display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.58);font-size:12px;font-weight:900;border:1px solid}.status-pill i{display:block;width:8px;height:8px;border-radius:50%}.status-online{color:#047857;border-color:#a7f3d0}.status-online i{background:#10b981}.status-offline{color:#be123c;border-color:#fecdd3}.status-offline i{background:#f43f5e}.status-unknown{color:#475569;border-color:#cbd5e1}.status-unknown i{background:#94a3b8}.metric-grid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:20px}.metric{border-radius:16px;background:rgba(255,255,255,.46);border:1px solid rgba(255,255,255,.72);padding:13px 8px;text-align:center}.metric span{display:block;color:#64748b;font-size:10px;font-weight:900;letter-spacing:.08em}.metric strong{display:block;margin-top:6px;color:#334155;font-size:20px;line-height:1;font-weight:900}.empty{padding:80px 20px;border-radius:28px;background:rgba(255,255,255,.58);border:1px solid rgba(255,255,255,.82);text-align:center;color:#64748b;font-weight:800}@media(max-width:640px){.app-shell{padding-top:30px}.public-grid{grid-template-columns:1fr}.brand-title{font-size:32px}}' +
-          '.public-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}.public-card{overflow:hidden}.metric-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.metric{min-width:0;overflow:visible;padding:12px 6px}.metric span{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;font-size:10px}.metric strong{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;letter-spacing:-0.02em}.metric-movie strong,.metric-series strong{font-size:20px}.metric-episode strong{font-size:15px;color:#64748b;font-weight:800}.public-footer{margin-top:28px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700}.public-footer a{color:inherit;text-decoration:none}.public-footer a:hover{color:#64748b}@media(max-width:640px){.public-grid{grid-template-columns:1fr}}</style></head><body><div class="bg-canvas"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div><main class="app-shell"><h1 class="brand-title">Emby Status</h1><p class="subtitle">状态数据由各服务器公开接口提供</p>' +
+          '.public-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}.public-card{overflow:hidden}.owner-banner{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:14px 16px;border-radius:22px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.82);box-shadow:0 12px 34px -28px rgba(15,23,42,.2),inset 0 1px 0 rgba(255,255,255,.88)}.owner-avatar{width:42px;height:42px;border-radius:14px;flex-shrink:0;overflow:hidden;background:rgba(248,250,252,.95);border:1px solid rgba(226,232,240,.9);display:flex;align-items:center;justify-content:center;color:#475569;font-size:18px;font-weight:900}.owner-avatar img{width:100%;height:100%;object-fit:cover}.owner-meta{min-width:0;display:flex;flex-direction:column;gap:2px}.owner-name{font-size:13px;font-weight:900;color:#1e293b;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.owner-subtitle{font-size:11px;font-weight:700;color:#64748b;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.metric{min-width:0;overflow:visible;padding:12px 6px}.metric span{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;font-size:10px}.metric strong{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;letter-spacing:-0.02em}.metric-movie strong,.metric-series strong{font-size:20px}.metric-episode strong{font-size:15px;color:#64748b;font-weight:800}.public-footer{margin-top:28px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700}.public-footer a{color:inherit;text-decoration:none}.public-footer a:hover{color:#64748b}@media(max-width:640px){.public-grid{grid-template-columns:1fr}}</style></head><body><div class="bg-canvas"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div><main class="app-shell"><h1 class="brand-title">Emby Status</h1><p class="subtitle">状态数据由各服务器公开接口提供</p>' +
+          ownerHtml +
           '<div style="margin:0 0 18px;padding:12px 14px;border:1px solid rgba(251,191,36,.35);border-radius:18px;background:rgba(255,251,235,.88);color:#92400e;font-size:12px;font-weight:800;line-height:1.5;">请勿将公开页分享到墙内任何社交平台，否则后果自负。</div>' +
           (cards ? '<section class="public-grid">' + cards + '</section>' : '<div class="empty">暂无服务器</div>') +
           '<footer class="public-footer"><a href="https://github.com/pototazhang/emby-js" target="_blank" rel="noopener noreferrer">项目地址：github.com/pototazhang/emby-js</a></footer>' +
