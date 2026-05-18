@@ -2509,17 +2509,6 @@ export default {
       });
     }
 
-    const badgeMatch = url.pathname.match(/^\/badge\/([^/]+)$/);
-    if (badgeMatch && request.method === 'GET') {
-      const config = await this.loadConfig(env);
-      return new Response(this.buildStatusBadge(config, decodeURIComponent(badgeMatch[1])), {
-          headers: {
-              'Content-Type': 'image/svg+xml;charset=utf-8',
-              'Cache-Control': 'no-store'
-          }
-      });
-    }
-
     if (url.pathname === '/api/config') {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
@@ -2696,7 +2685,7 @@ export default {
   },
 
   isAllowedPublicSharePath(pathname) {
-      return pathname === '/public' || /^\/public\/[a-f0-9]{24}$/i.test(pathname) || /^\/card\/[a-f0-9]{24}\.svg$/i.test(pathname) || /^\/badge\/[^/]+$/i.test(pathname) || pathname === '/proxy-img' || pathname === '/app-icon.svg';
+      return pathname === '/public' || /^\/public\/[a-f0-9]{24}$/i.test(pathname) || /^\/card\/[a-f0-9]{24}\.svg$/i.test(pathname) || pathname === '/proxy-img' || pathname === '/app-icon.svg';
   },
 
   currentTelegramConfig(env, config) {
@@ -2880,15 +2869,6 @@ export default {
           '</main></body></html>';
   },
 
-  buildStatusBadge(config, serverId) {
-      const clean = this.sanitizeConfig(config);
-      const server = clean.servers.find((item) => String(item.id) === String(serverId));
-      if (!server) return this.renderBadgeSvg('Emby', '未知服务器', '#64748b');
-      if (server.status === 'online') return this.renderBadgeSvg('Emby', server.name + ' · 在线 · ' + this.formatNotifyLatency(server.latency), '#16a34a');
-      if (server.status === 'offline') return this.renderBadgeSvg('Emby', server.name + ' · 离线', '#dc2626');
-      return this.renderBadgeSvg('Emby', server.name + ' · 检测中', '#64748b');
-  },
-
   buildServerCardSvg(server, config = {}) {
       const media = server.mediaStats || {};
       const counts = media.counts || {};
@@ -2927,24 +2907,6 @@ export default {
           '<g transform="translate(298 218)"><rect width="164" height="72" rx="16" fill="#ffffff" fill-opacity=".58" stroke="#ffffff" stroke-opacity=".9"/><text x="82" y="27" text-anchor="middle" font-size="12" font-weight="900" fill="#64748b" font-family="system-ui">' + this.escapeSvgText('剧集') + '</text><text x="82" y="54" text-anchor="middle" font-size="24" font-weight="900" fill="#334155" font-family="system-ui">' + this.escapeSvgText(series) + '</text></g>' +
           '<g transform="translate(486 218)"><rect width="164" height="72" rx="16" fill="#ffffff" fill-opacity=".58" stroke="#ffffff" stroke-opacity=".9"/><text x="82" y="27" text-anchor="middle" font-size="12" font-weight="900" fill="#64748b" font-family="system-ui">' + this.escapeSvgText('总集数') + '</text><text x="82" y="54" text-anchor="middle" font-size="19" font-weight="800" fill="#64748b" font-family="system-ui">' + this.escapeSvgText(episode) + '</text></g>' +
           '</g><text x="110" y="314" font-family="system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#64748b">' + this.escapeSvgText('Emby Status · 状态数据由各服务器公开接口提供') + '</text>' +
-          '</g></svg>';
-  },
-
-  renderBadgeSvg(label, value, color) {
-      const cleanLabel = String(label || '');
-      const cleanValue = String(value || '');
-      const visualLength = (text) => Array.from(String(text || '')).reduce((total, char) => total + (char.codePointAt(0) > 0x7e ? 2 : 1), 0);
-      const labelWidth = Math.max(48, Math.round(visualLength(cleanLabel) * 8 + 24));
-      const valueWidth = Math.max(88, Math.round(visualLength(cleanValue) * 7 + 24));
-      const width = labelWidth + valueWidth;
-      return '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="28" role="img" aria-label="' + this.escapeXml(cleanLabel + ': ' + cleanValue) + '">' +
-          '<title>' + this.escapeXml(cleanLabel + ': ' + cleanValue) + '</title>' +
-          '<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#000" stop-opacity=".08"/></linearGradient>' +
-          '<clipPath id="r"><rect width="' + width + '" height="28" rx="6" fill="#fff"/></clipPath>' +
-          '<g clip-path="url(#r)"><rect width="' + labelWidth + '" height="28" fill="#334155"/><rect x="' + labelWidth + '" width="' + valueWidth + '" height="28" fill="' + color + '"/><rect width="' + width + '" height="28" fill="url(#s)"/></g>' +
-          '<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11" font-weight="700">' +
-          '<text x="' + Math.round(labelWidth / 2) + '" y="18">' + this.escapeXml(cleanLabel) + '</text>' +
-          '<text x="' + (labelWidth + Math.round(valueWidth / 2)) + '" y="18">' + this.escapeXml(cleanValue) + '</text>' +
           '</g></svg>';
   },
 
