@@ -759,7 +759,7 @@ const HTML_CONTENT = `
                 width: auto;
                 margin-left: auto;
                 display: grid;
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 6px;
             }
             .mobile-card-actions button {
@@ -866,6 +866,18 @@ const HTML_CONTENT = `
             if (event.message === 'Script error.') return;
             showBootError('页面脚本错误：' + (event.message || 'Unknown error') + (event.filename ? '\\n' + event.filename + ':' + event.lineno : ''));
         });
+        window.addEventListener('DOMContentLoaded', function() {
+            if (window.Babel && window.Babel.transform) {
+                var scripts = document.querySelectorAll('script[type="text/babel"]');
+                scripts.forEach(function(script) {
+                    try {
+                        window.Babel.transform(script.textContent || '', { presets: ['react'] });
+                    } catch(e) {
+                        showBootError('JSX 编译失败：' + (e.message || e.toString()));
+                    }
+                });
+            }
+        });
         window.addEventListener('unhandledrejection', (event) => {
             showBootError('页面异步错误：' + ((event.reason && (event.reason.message || event.reason.toString())) || 'Unknown rejection'));
         });
@@ -904,6 +916,9 @@ const HTML_CONTENT = `
             Clock: (p) => <Icon {...p} path='<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>' />,
             Cloud: (p) => <Icon {...p} path='<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>' />,
             X: (p) => <Icon {...p} path='<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>' />,
+            Copy: (p) => <Icon {...p} path='<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>' />,
+            Share2: (p) => <Icon {...p} path='<circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>' />,
+            ExternalLink: (p) => <Icon {...p} path='<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line>' />,
             MessageSquare: (p) => <Icon {...p} path='<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' />,
             ImageIcon: (p) => <Icon {...p} path='<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>' />,
             Search: (p) => <Icon {...p} path='<circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>' />,
@@ -1074,6 +1089,7 @@ const HTML_CONTENT = `
             const [isSavingServer, setIsSavingServer] = useState(false);
             const [editingServerId, setEditingServerId] = useState(null);
             const [iconModalTarget, setIconModalTarget] = useState(null);
+            const [shareModalTarget, setShareModalTarget] = useState(null);
             const [iconInput, setIconInput] = useState('');
             const [iconSearch, setIconSearch] = useState('');
             const [privacyMode, setPrivacyMode] = useState(() => {
@@ -1090,6 +1106,7 @@ const HTML_CONTENT = `
             const [availabilitySort, setAvailabilitySort] = useState(() => localStorage.getItem('availability_sort') || 'none');
 
             const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
+            const [fallbackUrls, setFallbackUrls] = useState([]);
             const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
             const [quickImportText, setQuickImportText] = useState('');
             const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
@@ -1101,6 +1118,13 @@ const HTML_CONTENT = `
             const [updateInfo, setUpdateInfo] = useState(null);
             const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
             const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
+            const [accessDenied, setAccessDenied] = useState('');
+            const [publicShareLink, setPublicShareLink] = useState('');
+            const [publicShareExpiresAt, setPublicShareExpiresAt] = useState(0);
+            const [isGeneratingPublicShare, setIsGeneratingPublicShare] = useState(false);
+            const [cardShareLinks, setCardShareLinks] = useState({});
+            const [generatingCardShareId, setGeneratingCardShareId] = useState(null);
+            const [toastMessage, setToastMessage] = useState('');
             const privacyMenuRef = useRef(null);
             const configRevisionRef = useRef('');
             const configUpdatedAtRef = useRef(0);
@@ -1122,6 +1146,8 @@ const HTML_CONTENT = `
                             localStorage.setItem('emby_admin_token', token);
                             return fetchConfigData();
                         }
+                        setAccessDenied('未提供管理 Token，已阻止进入后台。');
+                        setIsLoading(false);
                         return;
                     }
                     const data = await res.json();
@@ -1150,6 +1176,11 @@ const HTML_CONTENT = `
                 localStorage.setItem('privacy_mode', privacyMode);
                 localStorage.setItem('hide_server_meta', privacyMode === 'all' ? '1' : '0');
             }, [privacyMode]);
+            useEffect(() => {
+                if (!toastMessage) return;
+                const timer = setTimeout(() => setToastMessage(''), 1800);
+                return () => clearTimeout(timer);
+            }, [toastMessage]);
             useEffect(() => {
                 const onPointerDown = (event) => {
                     if (!isPrivacyMenuOpen) return;
@@ -1256,6 +1287,16 @@ const HTML_CONTENT = `
             };
 
             const getSafeIconLib = () => (typeof iconLib === 'object' && iconLib !== null && !Array.isArray(iconLib)) ? iconLib : {};
+            const getShareBaseUrl = () => window.location.origin;
+            const getPublicUrl = () => publicShareLink || (getShareBaseUrl() + '/public');
+            const copyText = async (text, label = '内容') => {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    setToastMessage(label + '已复制');
+                } catch(e) {
+                    window.prompt('复制 ' + label, text);
+                }
+            };
             const normalizeTextForMatch = (value) => String(value || '').normalize('NFKC').toLowerCase();
             const getDisplayIcon = (server) => {
                 if (server.customIcon) return server.customIcon;
@@ -1264,6 +1305,35 @@ const HTML_CONTENT = `
                 const safeIcons = getSafeIconLib();
                 for (let k in safeIcons) { if (n.includes(normalizeTextForMatch(k))) return safeIcons[k]; }
                 return null;
+            };
+
+            const generatePublicShareLink = async () => {
+                setIsGeneratingPublicShare(true);
+                try {
+                    const res = await apiFetch('/api/public/share-token', { method: 'POST' });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok || !data.url) throw new Error(data.error || '生成公开链接失败');
+                    setPublicShareLink(data.url);
+                    setPublicShareExpiresAt(Number(data.expiresAt) || 0);
+                } catch(e) {
+                    alert(e.message || '生成公开链接失败');
+                } finally {
+                    setIsGeneratingPublicShare(false);
+                }
+            };
+
+            const generateCardShareLink = async (serverId) => {
+                setGeneratingCardShareId(serverId);
+                try {
+                    const res = await apiFetch('/api/card/share-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serverId }) });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok || !data.url) throw new Error(data.error || '生成卡片图片失败');
+                    setCardShareLinks((current) => ({ ...current, [serverId]: { url: data.url, expiresAt: Number(data.expiresAt) || 0 } }));
+                } catch(e) {
+                    alert(e.message || '生成卡片图片失败');
+                } finally {
+                    setGeneratingCardShareId(null);
+                }
             };
 
             const getHistoryStatus = (item) => {
@@ -1302,6 +1372,7 @@ const HTML_CONTENT = `
 
             const resetServerForm = () => {
                 setAddForm({ name: '', protocol: 'https://', host: '', port: '443' });
+                setFallbackUrls([]);
                 setMediaForm({ enabled: false, username: '', password: '' });
                 setQuickImportText('');
                 setEditingServerId(null);
@@ -1322,6 +1393,47 @@ const HTML_CONTENT = `
             const updateHostFromInput = (value) => {
                 const parsed = splitServerUrl(value);
                 setAddForm({...addForm, protocol: parsed.protocol, host: parsed.host, port: parsed.port});
+            };
+
+            const normalizeFallbackUrlInput = (value) => {
+                let raw = String(value || '').trim();
+                if (!raw) return '';
+                const lowerRaw = raw.toLowerCase();
+                if (!lowerRaw.startsWith('http://') && !lowerRaw.startsWith('https://')) raw = 'https://' + raw;
+                try {
+                    const parsed = new URL(raw);
+                    parsed.hash = '';
+                    const normalized = parsed.toString();
+                    return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+                } catch(e) {
+                    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+                }
+            };
+
+            const normalizeFallbackUrlsForSave = (mainUrl) => {
+                const seen = new Set([String(mainUrl || '').toLowerCase()]);
+                const clean = [];
+                for (const value of fallbackUrls) {
+                    const normalized = normalizeFallbackUrlInput(value);
+                    const key = normalized.toLowerCase();
+                    if (!normalized || seen.has(key)) continue;
+                    seen.add(key);
+                    clean.push(normalized);
+                    if (clean.length >= 4) break;
+                }
+                return clean;
+            };
+
+            const updateFallbackUrl = (index, value) => {
+                setFallbackUrls((current) => current.map((item, i) => i === index ? value : item));
+            };
+
+            const addFallbackUrl = () => {
+                setFallbackUrls((current) => current.length >= 4 ? current : current.concat(''));
+            };
+
+            const removeFallbackUrl = (index) => {
+                setFallbackUrls((current) => current.filter((_, i) => i !== index));
             };
 
             const extractFieldFromText = (lines, labels, skipPattern) => {
@@ -1398,6 +1510,7 @@ const HTML_CONTENT = `
                 const parsed = splitServerUrl(server.url || '');
                 setEditingServerId(server.id);
                 setAddForm({ name: server.name || '', protocol: parsed.protocol, host: parsed.host, port: parsed.port });
+                setFallbackUrls(Array.isArray(server.fallbackUrls) ? server.fallbackUrls.slice(0, 4) : []);
                 setMediaForm({
                     enabled: Boolean(server.mediaStats && server.mediaStats.enabled),
                     username: server.mediaStats ? server.mediaStats.username || '' : '',
@@ -1413,6 +1526,7 @@ const HTML_CONTENT = `
                 try {
                 let finalUrl = buildServerUrlFromForm();
                 if (finalUrl.endsWith('/')) finalUrl = finalUrl.slice(0, -1);
+                const cleanFallbackUrls = normalizeFallbackUrlsForSave(finalUrl);
 
                 const buildMediaStats = (existing) => {
                     const previousMedia = existing && existing.mediaStats ? existing.mediaStats : {};
@@ -1437,12 +1551,14 @@ const HTML_CONTENT = `
                 if (editingServerId) {
                     updatedServers = servers.map((server) => {
                         if (server.id !== editingServerId) return server;
-                        const urlChanged = server.url !== finalUrl;
-                        return { ...server, name: addForm.name, url: finalUrl, status: urlChanged ? 'updating' : server.status, latency: urlChanged ? 0 : server.latency, mediaStats: buildMediaStats(server) };
+                        const previousFallbackUrls = Array.isArray(server.fallbackUrls) ? server.fallbackUrls : [];
+                        const fallbackChanged = JSON.stringify(previousFallbackUrls) !== JSON.stringify(cleanFallbackUrls);
+                        const urlChanged = server.url !== finalUrl || fallbackChanged;
+                        return { ...server, name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, status: urlChanged ? 'updating' : server.status, latency: urlChanged ? 0 : server.latency, mediaStats: buildMediaStats(server) };
                     });
                 } else {
                     newServer = {
-                        id: Date.now(), name: addForm.name, url: finalUrl, customIcon: null, status: 'updating',
+                        id: Date.now(), name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, customIcon: null, status: 'updating',
                         totalChecks: 0, successfulChecks: 0, uptime: "0.0", latency: 0, lastCheck: 0, history: [], mediaStats: buildMediaStats(null)
                     };
                     updatedServers = [...servers, newServer];
@@ -1514,6 +1630,7 @@ const HTML_CONTENT = `
                 } catch(e) { alert('更新失败：' + (e.message || 'Cloudflare API 调用异常')); } finally { setIsApplyingUpdate(false); }
             };
 
+            if (accessDenied) return <div className="flex items-center justify-center min-h-screen p-6 text-center"><div className="max-w-lg w-full glass-panel bg-white/80 rounded-[2rem] p-8 shadow-2xl border border-white"><div className="text-rose-600 font-black text-lg mb-2">访问被拒绝</div><div className="text-slate-600 text-sm font-semibold whitespace-pre-wrap">{accessDenied}</div></div></div>;
             if (isLoading) return <div className="flex items-center justify-center min-h-screen text-slate-500 font-bold">读取云端配置中...</div>;
 
             // 动态数据计算
@@ -1573,6 +1690,11 @@ const HTML_CONTENT = `
 
             return (
                 <div className="app-shell min-h-screen relative overflow-x-hidden">
+                    {toastMessage && (
+                        <div className="fixed right-4 bottom-4 z-[70] px-4 py-3 rounded-2xl bg-slate-900/90 text-white text-sm font-bold shadow-2xl border border-white/10 backdrop-blur-md">
+                            {toastMessage}
+                        </div>
+                    )}
                     <div className="bg-canvas" aria-hidden="true">
                         <div className="orb orb-1"></div>
                         <div className="orb orb-2"></div>
@@ -1636,6 +1758,9 @@ const HTML_CONTENT = `
                                 {/* 核心操作组 */}
                                 <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
                                     <Icons.Plus className="w-4 h-4" /> 添加服务器
+                                </button>
+                                <button onClick={() => setShareModalTarget('public')} className="px-4 py-2.5 h-11 bg-white/70 hover:bg-white text-slate-600 rounded-[14px] text-sm font-bold border border-white shadow-sm transition-all flex items-center gap-2">
+                                    <Icons.Share2 className="w-4 h-4" /> 公开页
                                 </button>
                                 <button
                                     onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: true })}
@@ -1846,6 +1971,7 @@ const HTML_CONTENT = `
                                                     检测: {new Date(s.lastCheck).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                                 </div>
                                                 <div className="mobile-card-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => setShareModalTarget(s.id)} className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors">分享</button>
                                                     <button onClick={() => openEditServerModal(s)} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">编辑</button>
                                                     <button onClick={async () => {
                                                         if(confirm('彻底删除该服务器?')) {
@@ -2066,6 +2192,37 @@ const HTML_CONTENT = `
                                         </div>
                                     </div>
 
+                                    {/* 备用地址 */}
+                                    <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                                <Icons.Link className="w-4 h-4 text-emerald-500" />备用地址
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={addFallbackUrl}
+                                                disabled={fallbackUrls.length >= 4}
+                                                className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed border border-emerald-100 hover:bg-emerald-100 text-[11px] font-black transition-colors"
+                                            >
+                                                添加
+                                            </button>
+                                        </div>
+                                        {fallbackUrls.length === 0 ? (
+                                            <div className="text-xs text-slate-400 font-semibold bg-white/45 border border-white/70 rounded-2xl px-4 py-3">主地址不可用时，将按顺序探测备用地址。</div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {fallbackUrls.map((fallbackUrl, index) => (
+                                                    <div key={index} className="grid grid-cols-[1fr_40px] gap-2">
+                                                        <input type="text" value={fallbackUrl} onChange={e=>updateFallbackUrl(index, e.target.value)} placeholder={"https://backup" + (index + 1) + ".example.com"} className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono outline-none" />
+                                                        <button type="button" onClick={() => removeFallbackUrl(index)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 border border-rose-100 transition-colors">
+                                                            <Icons.X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
                                     {/* 媒体库配置 */}
                                     <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
                                         <div className="flex items-center justify-between">
@@ -2099,6 +2256,84 @@ const HTML_CONTENT = `
                             </div>
                         </div>
                     )}
+
+                    {/* 分享弹窗 */}
+                    {shareModalTarget && (() => {
+                        const targetServer = shareModalTarget === 'public' ? null : servers.find(server => String(server.id) === String(shareModalTarget));
+                        const publicUrl = getPublicUrl();
+                        const shareExpired = publicShareExpiresAt ? Date.now() >= publicShareExpiresAt : false;
+                        const shareExpiresText = publicShareExpiresAt ? new Date(publicShareExpiresAt).toLocaleString('zh-CN', { hour12: false }) : '';
+                        const cardShare = targetServer ? cardShareLinks[targetServer.id] : null;
+                        const cardShareExpired = cardShare && cardShare.expiresAt ? Date.now() >= cardShare.expiresAt : false;
+                        const cardShareExpiresText = cardShare && cardShare.expiresAt ? new Date(cardShare.expiresAt).toLocaleString('zh-CN', { hour12: false }) : '';
+                        return (
+                            <div className="mobile-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+                                <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setShareModalTarget(null)}></div>
+                                <div className="mobile-sheet relative w-full max-w-xl glass-panel bg-white/80 rounded-[2.5rem] shadow-2xl p-8 overflow-hidden animate-in zoom-in-95 duration-200">
+                                    <button onClick={() => setShareModalTarget(null)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors">
+                                        <Icons.X className="w-4 h-4" />
+                                    </button>
+
+                                    <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
+                                        <Icons.Share2 className="w-6 h-6 text-emerald-500" />
+                                        {targetServer ? '服务器卡片分享' : '公开链接'}
+                                    </h2>
+
+                                    <div className="space-y-4">
+                                        {!targetServer && (
+                                        <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="text-slate-700 font-bold">公开大盘链接</div>
+                                                {!publicShareLink && <button onClick={generatePublicShareLink} disabled={isGeneratingPublicShare} className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100 text-[11px] font-black transition-colors flex items-center gap-1.5 disabled:opacity-50">
+                                                    <Icons.Share2 className="w-3.5 h-3.5" /> {isGeneratingPublicShare ? '生成中...' : '生成'}
+                                                </button>}
+                                            </div>
+                                            <div className="grid grid-cols-[1fr_44px] gap-2">
+                                                <input readOnly value={publicUrl} className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono outline-none" />
+                                                <button onClick={() => copyText(publicUrl, '公开大盘链接')} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
+                                                    <Icons.Copy className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                            <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between gap-3">
+                                                <span>有效期：1 小时</span>
+                                                {publicShareExpiresAt && <span>{shareExpired ? '已过期' : '过期时间：' + shareExpiresText}</span>}
+                                            </div>
+                                        </div>
+                                        )}
+
+                                        {targetServer && (
+                                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="text-slate-700 font-bold truncate">卡片图片快照</div>
+                                                    <button onClick={() => generateCardShareLink(targetServer.id)} disabled={generatingCardShareId === targetServer.id} className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100 text-[11px] font-black transition-colors flex items-center gap-1.5 disabled:opacity-50">
+                                                        <Icons.Share2 className="w-3.5 h-3.5" /> {generatingCardShareId === targetServer.id ? '生成中...' : '生成'}
+                                                    </button>
+                                                </div>
+                                                {cardShare && (
+                                                    <div className="space-y-2">
+                                                        <div className="rounded-2xl bg-white/70 border border-white p-3 flex justify-center overflow-hidden">
+                                                            <img src={cardShare.url} alt="server card snapshot" className="w-full max-w-md rounded-xl" />
+                                                        </div>
+                                                        <div className="grid grid-cols-[1fr_44px] gap-2">
+                                                            <input readOnly value={cardShare.url} className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono outline-none" />
+                                                            <button onClick={() => copyText(cardShare.url, '卡片图片地址')} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white text-slate-600 hover:text-blue-600 border border-slate-200 transition-colors">
+                                                                <Icons.Copy className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                        <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between gap-3">
+                                                            <span>有效期：1 小时</span>
+                                                            {cardShare.expiresAt && <span>{cardShareExpired ? '已过期' : '过期时间：' + cardShareExpiresText}</span>}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* 图标选择弹窗 */}
                     {iconModalTarget && (
@@ -2184,6 +2419,10 @@ export default {
 
   async fetch(request, env) {
     const url = new URL(request.url);
+    const publicShareHost = this.isPublicShareHost(request, env);
+    if (publicShareHost && !this.isAllowedPublicSharePath(url.pathname)) {
+      return new Response('Not Found', { status: 404 });
+    }
 
     if (url.pathname === '/manifest.webmanifest') {
       return this.json({
@@ -2209,13 +2448,85 @@ export default {
       });
     }
 
+    if (url.pathname === '/public') {
+      return new Response('Link required', { status: 404, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+    }
+
+    if (request.method === 'GET' && /^\/public\/[a-f0-9]{24}$/i.test(url.pathname)) {
+      const token = url.pathname.split('/').pop();
+      const tokenRecord = await this.getPublicShareToken(env, token);
+      if (!tokenRecord || tokenRecord.expiresAt <= Date.now()) return new Response('Link expired', { status: 410, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+      const config = await this.loadConfig(env);
+      return new Response(this.buildPublicPage(config), {
+          headers: {
+              'Content-Type': 'text/html;charset=utf-8',
+              'Cache-Control': 'no-store'
+          }
+      });
+    }
+
+    if (url.pathname === '/api/public/share-token' && request.method === 'POST') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+      const token = this.generatePublicShareToken();
+      const expiresAt = Date.now() + (60 * 60 * 1000);
+      await this.storePublicShareToken(env, token, expiresAt);
+      const baseUrl = url.origin || '';
+      const publicUrl = baseUrl.replace(/\/$/, '') + '/public/' + token;
+      return this.json({ ok: true, token, url: publicUrl, expiresAt });
+    }
+
+    if (url.pathname === '/api/card/share-token' && request.method === 'POST') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+      const body = await request.json().catch(() => ({}));
+      const serverId = String(body.serverId || '');
+      const config = await this.loadConfig(env);
+      const clean = this.sanitizeConfig(config);
+      const server = clean.servers.find((item) => String(item.id) === serverId);
+      if (!server) return this.json({ ok: false, error: 'Server not found' }, 404);
+      const token = this.generatePublicShareToken();
+      const expiresAt = Date.now() + (60 * 60 * 1000);
+      await this.storeCardShareToken(env, token, { expiresAt, serverId });
+      const baseUrl = url.origin || '';
+      const cardUrl = baseUrl.replace(/\/$/, '') + '/card/' + token + '.svg';
+      return this.json({ ok: true, token, url: cardUrl, expiresAt });
+    }
+
+    const cardMatch = url.pathname.match(/^\/card\/([a-f0-9]{24})\.svg$/i);
+    if (cardMatch && request.method === 'GET') {
+      const tokenRecord = await this.getCardShareToken(env, cardMatch[1]);
+      if (!tokenRecord || tokenRecord.expiresAt <= Date.now()) return new Response('Link expired', { status: 410, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+      const config = await this.loadConfig(env);
+      const clean = this.sanitizeConfig(config);
+      const server = clean.servers.find((item) => String(item.id) === String(tokenRecord.serverId));
+      if (!server) return new Response('Not Found', { status: 404 });
+      return new Response(new Blob([this.buildServerCardSvg(server, clean)], { type: 'image/svg+xml;charset=utf-8' }), {
+          headers: {
+              'Content-Type': 'image/svg+xml;charset=utf-8',
+              'Cache-Control': 'no-store'
+          }
+      });
+    }
+
+    const badgeMatch = url.pathname.match(/^\/badge\/([^/]+)$/);
+    if (badgeMatch && request.method === 'GET') {
+      const config = await this.loadConfig(env);
+      return new Response(this.buildStatusBadge(config, decodeURIComponent(badgeMatch[1])), {
+          headers: {
+              'Content-Type': 'image/svg+xml;charset=utf-8',
+              'Cache-Control': 'no-store'
+          }
+      });
+    }
+
     if (url.pathname === '/api/config') {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
 
       if (request.method === 'GET') {
           const config = await this.loadConfig(env);
-          return this.json({ ...config, notifyEnabled: this.isTelegramEnabled(env, config), telegram: this.getTelegramConfig(env, config) });
+          return this.json({ ...config, notifyEnabled: this.isTelegramEnabled(env, config), telegram: this.getTelegramConfig(env, config), publicShareBaseUrl: this.getPublicShareBaseUrl(env), publicShareWildcardDomain: this.getPublicShareWildcardDomain(env) });
       }
       if (request.method === 'POST') {
           const nextConfig = await request.json();
@@ -2349,6 +2660,45 @@ export default {
       return { enabled: current.enabled, botToken: current.botToken, chatId: current.chatId };
   },
 
+  getPublicShareBaseUrl(env) {
+      const raw = String(env.PUBLIC_SHARE_BASE_URL || '').trim();
+      if (!raw) return '';
+      try {
+          const parsed = new URL(raw);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+          parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+          parsed.search = '';
+          parsed.hash = '';
+          return parsed.toString().replace(/\/$/, '');
+      } catch(e) {
+          return '';
+      }
+  },
+
+  getPublicShareWildcardDomain(env) {
+      const raw = String(env.PUBLIC_SHARE_WILDCARD_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/^\*\./, '').replace(/\.+$/, '').toLowerCase();
+      if (!raw) return '';
+      if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(raw)) return '';
+      return raw;
+  },
+
+  getHostnameFromBaseUrl(value) {
+      try { return new URL(value).hostname.toLowerCase(); } catch(e) { return ''; }
+  },
+
+  isPublicShareHost(request, env) {
+      const host = String(request.headers.get('Host') || '').split(':')[0].toLowerCase();
+      if (!host) return false;
+      const wildcardDomain = this.getPublicShareWildcardDomain(env);
+      if (wildcardDomain && host.endsWith('.' + wildcardDomain)) return true;
+      const baseHost = this.getHostnameFromBaseUrl(this.getPublicShareBaseUrl(env));
+      return Boolean(baseHost && host === baseHost);
+  },
+
+  isAllowedPublicSharePath(pathname) {
+      return pathname === '/public' || /^\/public\/[a-f0-9]{24}$/i.test(pathname) || /^\/card\/[a-f0-9]{24}\.svg$/i.test(pathname) || /^\/badge\/[^/]+$/i.test(pathname) || pathname === '/proxy-img' || pathname === '/app-icon.svg';
+  },
+
   currentTelegramConfig(env, config) {
       const stored = config && config.telegram ? config.telegram : {};
       return {
@@ -2407,6 +2757,197 @@ export default {
       return uptime === '---' ? '样本不足' : uptime + '%';
   },
 
+  generatePublicShareToken() {
+      const bytes = new Uint8Array(12);
+      if (globalThis.crypto && globalThis.crypto.getRandomValues) {
+          globalThis.crypto.getRandomValues(bytes);
+      } else {
+          for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+      }
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  },
+
+  async storePublicShareToken(env, token, expiresAt) {
+      if (!env.EMBY_DB) return false;
+      await env.EMBY_DB.put('public_share_token:' + token, JSON.stringify({ expiresAt: Number(expiresAt) || 0 }));
+      return true;
+  },
+
+  async getPublicShareToken(env, token) {
+      if (!env.EMBY_DB) return null;
+      const raw = await env.EMBY_DB.get('public_share_token:' + token);
+      if (!raw) return null;
+      try {
+          return JSON.parse(raw);
+      } catch(e) {
+          return null;
+      }
+  },
+
+  async storeCardShareToken(env, token, data) {
+      if (!env.EMBY_DB) return false;
+      await env.EMBY_DB.put('card_share_token:' + token, JSON.stringify({ expiresAt: Number(data.expiresAt) || 0, serverId: String(data.serverId || '') }));
+      return true;
+  },
+
+  async getCardShareToken(env, token) {
+      if (!env.EMBY_DB) return null;
+      const raw = await env.EMBY_DB.get('card_share_token:' + token);
+      if (!raw) return null;
+      try {
+          return JSON.parse(raw);
+      } catch(e) {
+          return null;
+      }
+  },
+
+  escapeHtml(value) {
+      return String(value === undefined || value === null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+  },
+
+  escapeXml(value) {
+      return this.escapeSvgText(value);
+  },
+
+  escapeSvgText(value) {
+      let output = '';
+      for (const char of String(value === undefined || value === null ? '' : value)) {
+          const code = char.codePointAt(0);
+          if (!code || code === 0x0b || code === 0x0c || code < 0x20 || (code >= 0xd800 && code <= 0xdfff) || code > 0x10ffff) continue;
+          if (char === '&') output += '&amp;';
+          else if (char === '<') output += '&lt;';
+          else if (char === '>') output += '&gt;';
+          else if (char === '"') output += '&quot;';
+          else if (char === "'") output += '&#39;';
+          else if (code > 0x7e) output += '&#' + code + ';';
+          else output += char;
+      }
+      return output;
+  },
+
+  publicIconSrc(icon) {
+      if (!icon || typeof icon !== 'string') return '';
+      if (icon.startsWith('data:image/')) return icon;
+      const parsed = this.parsePublicHttpUrl(icon);
+      return parsed ? '/proxy-img?url=' + encodeURIComponent(parsed.toString()) : '';
+  },
+
+  normalizeTextForPublicMatch(value) {
+      try { return String(value || '').normalize('NFKC').toLowerCase(); } catch(e) { return String(value || '').toLowerCase(); }
+  },
+
+  getPublicDisplayIcon(server, icons = {}) {
+      if (server.customIcon) return server.customIcon;
+      if (!server.name || !icons || typeof icons !== 'object' || Array.isArray(icons)) return '';
+      const name = this.normalizeTextForPublicMatch(server.name);
+      for (const [key, value] of Object.entries(icons)) {
+          if (name.includes(this.normalizeTextForPublicMatch(key))) return value;
+      }
+      return '';
+  },
+
+  buildPublicPage(config) {
+      const clean = this.sanitizeConfig(config);
+      const cards = clean.servers.map((server) => {
+          const media = server.mediaStats || {};
+          const counts = media.counts || {};
+          const icon = this.publicIconSrc(this.getPublicDisplayIcon(server, clean.icons));
+          const statusClass = server.status === 'online' ? 'online' : server.status === 'offline' ? 'offline' : 'unknown';
+          const statusText = server.status === 'online' ? '在线' : server.status === 'offline' ? '离线' : '检测中';
+          const iconHtml = icon ? '<img src="' + this.escapeHtml(icon) + '" alt="" class="avatar-img">' : '<span>' + this.escapeHtml((server.name || '?').slice(0, 1)) + '</span>';
+          return '<article class="public-card public-card-' + statusClass + '">' +
+              '<div class="card-glow card-glow-' + statusClass + '"></div>' +
+              '<div class="public-card-head">' +
+                  '<div class="avatar">' + iconHtml + '</div>' +
+                  '<div class="server-title"><h2>' + this.escapeHtml(server.name) + '</h2><div class="status-pill status-' + statusClass + '"><i></i>' + statusText + '</div></div>' +
+              '</div>' +
+              '<div class="metric-grid">' +
+                  '<div class="metric metric-movie"><span>电影</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : '--') + '</strong></div>' +
+                  '<div class="metric metric-series"><span>剧集</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.series)) ? Number(counts.series) : '--') + '</strong></div>' +
+                  '<div class="metric metric-episode"><span>总集数</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : '--') + '</strong></div>' +
+              '</div>' +
+          '</article>';
+      }).join('');
+      return '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#dce8fb"><title>Emby Status</title><style>' +
+          'html{background:#dde8f8}body{background:#dde8f8;color:#334155;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;min-height:100vh}.bg-canvas{position:fixed;inset:0;z-index:0;background:linear-gradient(135deg,#e8eeff 0%,#dce8fb 30%,#ede4fb 60%,#e0effe 100%);overflow:hidden}.bg-canvas:after{content:"";position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox=%270 0 256 256%27 xmlns=%27http://www.w3.org/2000/svg%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.9%27 numOctaves=%274%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27 opacity=%270.04%27/%3E%3C/svg%3E");pointer-events:none;opacity:.6}.orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:.55}.orb-1{width:600px;height:600px;background:radial-gradient(circle,#a5c4fd,#c4b5fd);top:-15%;left:-10%}.orb-2{width:500px;height:500px;background:radial-gradient(circle,#fde68a,#fca5a5);top:40%;right:-8%}.orb-3{width:450px;height:450px;background:radial-gradient(circle,#6ee7f7,#a5f3cc);bottom:-10%;left:25%}.app-shell{position:relative;z-index:1;width:min(1180px,calc(100% - 32px));margin:0 auto;padding:42px 0 56px}.brand-title{font-size:clamp(28px,5vw,52px);line-height:1;margin:0;background:linear-gradient(100deg,#0f172a 0%,#0369a1 48%,#059669 100%);-webkit-background-clip:text;background-clip:text;color:transparent}.subtitle{margin:12px 0 30px;color:#64748b;font-weight:700}.public-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}.public-card{position:relative;overflow:hidden;border-radius:28px;padding:22px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(248,250,255,.48));backdrop-filter:blur(20px) saturate(170%);border:1px solid rgba(255,255,255,.82);box-shadow:0 12px 34px -26px rgba(15,23,42,.28),inset 0 1px 0 rgba(255,255,255,.88)}.public-card-online{border-color:rgba(16,185,129,.2)}.public-card-offline{border-color:rgba(244,63,94,.22)}.card-glow{position:absolute;right:-64px;top:-64px;width:180px;height:180px;border-radius:50%;filter:blur(50px);pointer-events:none}.card-glow-online{background:#10b98133}.card-glow-offline{background:#f43f5e38}.card-glow-unknown{background:#94a3b833}.public-card-head{display:flex;gap:14px;align-items:center;position:relative;z-index:1}.avatar{width:56px;height:56px;border-radius:18px;background:rgba(255,255,255,.8);border:1px solid #fff;box-shadow:0 1px 8px rgba(15,23,42,.08);display:flex;align-items:center;justify-content:center;overflow:hidden;color:#334155;font-size:24px;font-weight:900;flex-shrink:0}.avatar-img{width:100%;height:100%;object-fit:contain;padding:8px;box-sizing:border-box}.server-title{min-width:0;display:flex;flex-direction:column;gap:8px}.server-title h2{margin:0;color:#1e293b;font-size:18px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status-pill{width:max-content;display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.58);font-size:12px;font-weight:900;border:1px solid}.status-pill i{display:block;width:8px;height:8px;border-radius:50%}.status-online{color:#047857;border-color:#a7f3d0}.status-online i{background:#10b981}.status-offline{color:#be123c;border-color:#fecdd3}.status-offline i{background:#f43f5e}.status-unknown{color:#475569;border-color:#cbd5e1}.status-unknown i{background:#94a3b8}.metric-grid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:20px}.metric{border-radius:16px;background:rgba(255,255,255,.46);border:1px solid rgba(255,255,255,.72);padding:13px 8px;text-align:center}.metric span{display:block;color:#64748b;font-size:10px;font-weight:900;letter-spacing:.08em}.metric strong{display:block;margin-top:6px;color:#334155;font-size:20px;line-height:1;font-weight:900}.empty{padding:80px 20px;border-radius:28px;background:rgba(255,255,255,.58);border:1px solid rgba(255,255,255,.82);text-align:center;color:#64748b;font-weight:800}@media(max-width:640px){.app-shell{padding-top:30px}.public-grid{grid-template-columns:1fr}.brand-title{font-size:32px}}' +
+          '.public-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}.public-card{overflow:hidden}.metric-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.metric{min-width:0;overflow:visible;padding:12px 6px}.metric span{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;font-size:10px}.metric strong{white-space:nowrap;overflow:visible !important;text-overflow:clip !important;letter-spacing:-0.02em}.metric-movie strong,.metric-series strong{font-size:20px}.metric-episode strong{font-size:15px;color:#64748b;font-weight:800}@media(max-width:640px){.public-grid{grid-template-columns:1fr}}</style></head><body><div class="bg-canvas"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div><main class="app-shell"><h1 class="brand-title">Emby Status</h1><p class="subtitle">状态数据由各服务器公开接口提供</p>' +
+          (cards ? '<section class="public-grid">' + cards + '</section>' : '<div class="empty">暂无服务器</div>') +
+          '</main></body></html>';
+  },
+
+  buildStatusBadge(config, serverId) {
+      const clean = this.sanitizeConfig(config);
+      const server = clean.servers.find((item) => String(item.id) === String(serverId));
+      if (!server) return this.renderBadgeSvg('Emby', '未知服务器', '#64748b');
+      if (server.status === 'online') return this.renderBadgeSvg('Emby', server.name + ' · 在线 · ' + this.formatNotifyLatency(server.latency), '#16a34a');
+      if (server.status === 'offline') return this.renderBadgeSvg('Emby', server.name + ' · 离线', '#dc2626');
+      return this.renderBadgeSvg('Emby', server.name + ' · 检测中', '#64748b');
+  },
+
+  buildServerCardSvg(server, config = {}) {
+      const media = server.mediaStats || {};
+      const counts = media.counts || {};
+      const status = server.status === 'online' ? '在线' : server.status === 'offline' ? '离线' : '检测中';
+      const statusColor = server.status === 'online' ? '#047857' : server.status === 'offline' ? '#be123c' : '#2563eb';
+      const statusBg = server.status === 'online' ? '#d1fae5' : server.status === 'offline' ? '#ffe4e6' : '#dbeafe';
+      const dotColor = server.status === 'online' ? '#10b981' : server.status === 'offline' ? '#f43f5e' : '#3b82f6';
+      const movie = Number.isFinite(Number(counts.movie)) ? String(Number(counts.movie)) : '--';
+      const series = Number.isFinite(Number(counts.series)) ? String(Number(counts.series)) : '--';
+      const episode = Number.isFinite(Number(counts.episode)) ? String(Number(counts.episode)) : '--';
+      const initial = String(server.name || '?').slice(0, 1);
+      const name = this.escapeSvgText(server.name || 'Emby Server');
+      const icon = this.publicIconSrc(this.getPublicDisplayIcon(server, config.icons || {}));
+      const statusLabel = this.escapeSvgText(status);
+      const statusTextWidth = Math.max(28, Math.round(Array.from(String(status)).reduce((total, char) => total + (char.codePointAt(0) > 0x7e ? 2 : 1), 0) * 7 + 14));
+      const statusChipWidth = statusTextWidth + 28;
+      const statusChipLeft = 214;
+      const statusDotX = statusChipLeft + 15;
+      const statusTextX = statusChipLeft + 28;
+      const avatar = icon
+          ? '<image x="139" y="129" width="48" height="48" href="' + this.escapeSvgText(icon) + '" preserveAspectRatio="xMidYMid meet"/>'
+          : '<text x="163" y="165" text-anchor="middle" font-family="system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="32" font-weight="900" fill="#334155">' + this.escapeSvgText(initial) + '</text>';
+      return '<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" preserveAspectRatio="xMidYMid meet" role="img">' +
+          '<style>svg{background:#dde8f8;display:block;position:fixed;inset:0;margin:auto;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px)} @media (max-width: 640px){svg{max-width:calc(100vw - 10px);max-height:calc(100vh - 10px)}}</style>' +
+          '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e8eeff"/><stop offset=".55" stop-color="#ede4fb"/><stop offset="1" stop-color="#e0effe"/></linearGradient><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#0f172a" flood-opacity=".18"/></filter><clipPath id="outer"><rect x="28" y="24" width="704" height="372" rx="40"/></clipPath></defs>' +
+          '<g clip-path="url(#outer)">' +
+          '<rect x="28" y="24" width="704" height="372" rx="40" fill="url(#bg)"/>' +
+          '<circle cx="664" cy="86" r="140" fill="' + (server.status === 'online' ? '#10b981' : server.status === 'offline' ? '#f43f5e' : '#3b82f6') + '" opacity=".18"/>' +
+          '<circle cx="106" cy="324" r="126" fill="#60a5fa" opacity=".12"/>' +
+          '<g filter="url(#shadow)"><rect x="78" y="78" width="604" height="244" rx="30" fill="#ffffff" fill-opacity=".82" stroke="#ffffff" stroke-opacity=".95"/>' +
+          '<rect x="126" y="116" width="74" height="74" rx="23" fill="#ffffff" fill-opacity=".92" stroke="#ffffff"/>' +
+          avatar +
+          '<text x="214" y="145" font-family="system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="27" font-weight="900" fill="#1e293b">' + name + '</text>' +
+          '<rect x="' + statusChipLeft + '" y="167" width="' + statusChipWidth + '" height="26" rx="13" fill="' + statusBg + '" stroke="#ffffff" stroke-opacity=".85"/><circle cx="' + statusDotX + '" cy="180" r="3" fill="' + dotColor + '"/><text x="' + statusTextX + '" y="185" font-family="system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="11" font-weight="900" fill="' + statusColor + '">' + statusLabel + '</text>' +
+          '<g transform="translate(110 218)"><rect width="164" height="72" rx="16" fill="#ffffff" fill-opacity=".58" stroke="#ffffff" stroke-opacity=".9"/><text x="82" y="27" text-anchor="middle" font-size="12" font-weight="900" fill="#64748b" font-family="system-ui">' + this.escapeSvgText('电影') + '</text><text x="82" y="54" text-anchor="middle" font-size="24" font-weight="900" fill="#334155" font-family="system-ui">' + this.escapeSvgText(movie) + '</text></g>' +
+          '<g transform="translate(298 218)"><rect width="164" height="72" rx="16" fill="#ffffff" fill-opacity=".58" stroke="#ffffff" stroke-opacity=".9"/><text x="82" y="27" text-anchor="middle" font-size="12" font-weight="900" fill="#64748b" font-family="system-ui">' + this.escapeSvgText('剧集') + '</text><text x="82" y="54" text-anchor="middle" font-size="24" font-weight="900" fill="#334155" font-family="system-ui">' + this.escapeSvgText(series) + '</text></g>' +
+          '<g transform="translate(486 218)"><rect width="164" height="72" rx="16" fill="#ffffff" fill-opacity=".58" stroke="#ffffff" stroke-opacity=".9"/><text x="82" y="27" text-anchor="middle" font-size="12" font-weight="900" fill="#64748b" font-family="system-ui">' + this.escapeSvgText('总集数') + '</text><text x="82" y="54" text-anchor="middle" font-size="19" font-weight="800" fill="#64748b" font-family="system-ui">' + this.escapeSvgText(episode) + '</text></g>' +
+          '</g><text x="110" y="314" font-family="system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#64748b">' + this.escapeSvgText('Emby Status · 状态数据由各服务器公开接口提供') + '</text>' +
+          '</g></svg>';
+  },
+
+  renderBadgeSvg(label, value, color) {
+      const cleanLabel = String(label || '');
+      const cleanValue = String(value || '');
+      const visualLength = (text) => Array.from(String(text || '')).reduce((total, char) => total + (char.codePointAt(0) > 0x7e ? 2 : 1), 0);
+      const labelWidth = Math.max(48, Math.round(visualLength(cleanLabel) * 8 + 24));
+      const valueWidth = Math.max(88, Math.round(visualLength(cleanValue) * 7 + 24));
+      const width = labelWidth + valueWidth;
+      return '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="28" role="img" aria-label="' + this.escapeXml(cleanLabel + ': ' + cleanValue) + '">' +
+          '<title>' + this.escapeXml(cleanLabel + ': ' + cleanValue) + '</title>' +
+          '<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#000" stop-opacity=".08"/></linearGradient>' +
+          '<clipPath id="r"><rect width="' + width + '" height="28" rx="6" fill="#fff"/></clipPath>' +
+          '<g clip-path="url(#r)"><rect width="' + labelWidth + '" height="28" fill="#334155"/><rect x="' + labelWidth + '" width="' + valueWidth + '" height="28" fill="' + color + '"/><rect width="' + width + '" height="28" fill="url(#s)"/></g>' +
+          '<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11" font-weight="700">' +
+          '<text x="' + Math.round(labelWidth / 2) + '" y="18">' + this.escapeXml(cleanLabel) + '</text>' +
+          '<text x="' + (labelWidth + Math.round(valueWidth / 2)) + '" y="18">' + this.escapeXml(cleanValue) + '</text>' +
+          '</g></svg>';
+  },
+
   maskNotifyUrl(value) {
       try {
           const url = new URL(value);
@@ -2443,6 +2984,15 @@ export default {
       return stats;
   },
 
+  formatAddressProbeResults(results) {
+      const items = Array.isArray(results) ? results : [];
+      if (!items.length) return ['地址1 未知 ❌'];
+      return items.map((item, index) => {
+          const latency = item.ok && item.latency ? ' ' + Math.round(item.latency) + 'ms' : '';
+          return '地址' + (index + 1) + ' ' + item.url + ' ' + (item.ok ? '✅' : '❌') + latency;
+      });
+  },
+
   buildStatusMessage(server, previousStatus, nextStatus) {
       const historyStats = this.getRecentHistoryStats(server);
       const offlineDuration = this.formatNotifyDuration(server.offlineSince, server.lastCheck || Date.now());
@@ -2453,7 +3003,7 @@ export default {
           return ['🟢 Emby 服务器已恢复', '', '服务器：' + server.name, '地址：' + maskedUrl, '状态：离线 -> 在线', '离线时长：' + offlineDuration, '恢复时间：' + checkedAt].join('\n');
       }
       return [
-          '🔴 Emby 服务器持续离线', '', '服务器：' + server.name, '地址：' + maskedUrl, '状态：离线', '离线时长：已持续 ' + offlineDuration, '离线时间：' + this.formatNotifyTime(server.offlineSince), '',
+          '🔴 ' + server.name + ' 离线', '', ...this.formatAddressProbeResults(server.addressProbeResults), '', '服务器：' + server.name, '地址：' + maskedUrl, '状态：离线', '离线时长：已持续 ' + offlineDuration, '离线时间：' + this.formatNotifyTime(server.offlineSince), '',
           '近24小时：离线 ' + historyStats.offlineEvents + ' 次', '近期可用率：' + this.formatNotifyUptime(historyStats.uptime)
       ].join('\n');
   },
@@ -2566,7 +3116,7 @@ export default {
       const clean = this.sanitizeConfig(config);
       const settingsOnly = {
           icons: clean.icons, telegram: clean.telegram,
-          servers: clean.servers.map((server) => ({ id: server.id, name: server.name, url: server.url, customIcon: server.customIcon, mediaStats: { enabled: Boolean(server.mediaStats && server.mediaStats.enabled), username: server.mediaStats ? server.mediaStats.username : '', password: server.mediaStats ? server.mediaStats.password : '' } }))
+          servers: clean.servers.map((server) => ({ id: server.id, name: server.name, url: server.url, fallbackUrls: server.fallbackUrls, customIcon: server.customIcon, mediaStats: { enabled: Boolean(server.mediaStats && server.mediaStats.enabled), username: server.mediaStats ? server.mediaStats.username : '', password: server.mediaStats ? server.mediaStats.password : '' } }))
       };
       const text = JSON.stringify(settingsOnly);
       let hash = 2166136261;
@@ -2585,13 +3135,27 @@ export default {
               .map((s) => {
                   const parsed = this.normalizeServerUrl(s && s.url);
                   if (!parsed) return null;
+                  const mainUrl = parsed.toString().replace(/\/$/, '');
+                  const seenFallbackUrls = new Set([mainUrl.toLowerCase()]);
+                  const fallbackUrls = Array.isArray(s.fallbackUrls) ? s.fallbackUrls
+                      .map((fallbackUrl) => this.normalizeServerUrl(fallbackUrl))
+                      .filter(Boolean)
+                      .map((fallbackUrl) => fallbackUrl.toString().replace(/\/$/, ''))
+                      .filter((fallbackUrl) => {
+                          const key = fallbackUrl.toLowerCase();
+                          if (seenFallbackUrls.has(key)) return false;
+                          seenFallbackUrls.add(key);
+                          return true;
+                      })
+                      .slice(0, 4) : [];
                   return {
-                      id: s.id || Date.now(), name: String(s.name || parsed.hostname).slice(0, 80), url: parsed.toString().replace(/\/$/, ''), customIcon: typeof s.customIcon === 'string' ? s.customIcon : null,
+                      id: s.id || Date.now(), name: String(s.name || parsed.hostname).slice(0, 80), url: mainUrl, fallbackUrls, customIcon: typeof s.customIcon === 'string' ? s.customIcon : null,
                       status: ['online', 'offline', 'updating', 'unknown'].includes(s.status) ? s.status : 'unknown',
                       totalChecks: Number.isFinite(Number(s.totalChecks)) ? Math.max(0, Number(s.totalChecks)) : 0, successfulChecks: Number.isFinite(Number(s.successfulChecks)) ? Math.max(0, Number(s.successfulChecks)) : 0,
                       uptime: typeof s.uptime === 'string' ? s.uptime : '0.0', latency: Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0,
                       lastCheck: Number.isFinite(Number(s.lastCheck)) ? Number(s.lastCheck) : 0, offlineSince: Number.isFinite(Number(s.offlineSince)) ? Math.max(0, Number(s.offlineSince)) : 0,
                       offlineAlertSentAt: Number.isFinite(Number(s.offlineAlertSentAt)) ? Math.max(0, Number(s.offlineAlertSentAt)) : 0,
+                      addressProbeResults: this.normalizeAddressProbeResults(s.addressProbeResults),
                       history: this.normalizeHistory(s.history, s.lastCheck), mediaStats: this.normalizeMediaStats(s.mediaStats)
                   };
               })
@@ -2599,6 +3163,19 @@ export default {
       }
       if (config && config.icons && typeof config.icons === 'object' && !Array.isArray(config.icons)) clean.icons = this.extractIcons(config.icons);
       return clean;
+  },
+
+  normalizeAddressProbeResults(results) {
+      if (!Array.isArray(results)) return [];
+      return results.slice(0, 5).map((item) => {
+          const parsed = this.normalizeServerUrl(item && item.url);
+          if (!parsed) return null;
+          return {
+              url: parsed.toString().replace(/\/$/, ''),
+              ok: Boolean(item.ok),
+              latency: Number.isFinite(Number(item.latency)) ? Math.max(0, Number(item.latency)) : 0
+          };
+      }).filter(Boolean);
   },
 
   normalizeHistory(history, fallbackTime = 0) {
@@ -2855,6 +3432,38 @@ export default {
       return { ok: false, latency: 0 };
   },
 
+  getProbeTargets(server) {
+      const targets = [];
+      const seen = new Set();
+      for (const value of [server.url, ...(Array.isArray(server.fallbackUrls) ? server.fallbackUrls : [])]) {
+          const parsed = this.normalizeServerUrl(value);
+          if (!parsed) continue;
+          const targetUrl = parsed.toString().replace(/\/$/, '');
+          const key = targetUrl.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          targets.push(targetUrl);
+          if (targets.length >= 5) break;
+      }
+      return targets;
+  },
+
+  async probeEmbyServerWithFallbacks(server) {
+      const targets = this.getProbeTargets(server);
+      const addressProbeResults = [];
+      for (const targetUrl of targets) {
+          let result = { ok: false, latency: 0 };
+          try {
+              result = await this.probeEmbyServer(server, targetUrl);
+          } catch(e) {}
+          addressProbeResults.push({ url: targetUrl, ok: Boolean(result.ok), latency: Number(result.latency) || 0 });
+          if (result.ok) {
+              return { ok: true, latency: Number(result.latency) || 0, addressProbeResults };
+          }
+      }
+      return { ok: false, latency: 0, addressProbeResults };
+  },
+
   async refreshMediaStatsIfNeeded(server, force = false) {
       const media = server.mediaStats || {};
       server.mediaStatsTouched = false;
@@ -2900,24 +3509,26 @@ export default {
           s.history = this.normalizeHistory(s.history, s.lastCheck);
           const checkedAt = Date.now();
 
-          const target = this.normalizeServerUrl(s.url);
-          if (!target) {
+          const probeTargets = this.getProbeTargets(s);
+          if (!probeTargets.length) {
               s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
+              s.addressProbeResults = [];
               if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
               s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
               s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
               await this.refreshMediaStatsIfNeeded(s, forceMedia || !s.mediaStats || !s.mediaStats.lastCheck);
               s.previousStatus = previousStatus; return s;
           }
-          const targetUrl = target.toString().replace(/\/$/, '');
 
           let isAlive = false;
           let finalLatency = 0;
+          let addressProbeResults = [];
 
           try {
-              const result = await this.probeEmbyServer(s, targetUrl);
-              isAlive = result.ok; finalLatency = result.latency;
+              const result = await this.probeEmbyServerWithFallbacks(s);
+              isAlive = result.ok; finalLatency = result.latency; addressProbeResults = result.addressProbeResults || [];
           } catch(e) { isAlive = false; }
+          s.addressProbeResults = addressProbeResults;
 
           if (isAlive) {
               s.successfulChecks = (s.successfulChecks || 0) + 1; s.status = 'online'; s.latency = finalLatency; s.history.push({ status: 'online', time: checkedAt, latency: finalLatency });
@@ -2945,8 +3556,8 @@ export default {
               const probed = probedById.get(latest.id);
               if (!probed || probed.url !== latest.url) return latest;
               const previouslySaved = latestById.get(latest.id) || latest;
-              const mergedServer = { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
-              const oldStatus = previouslySaved.url === latest.url ? previouslySaved.status : probed.previousStatus;
+              const mergedServer = { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, addressProbeResults: probed.addressProbeResults || [], history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
+              const oldStatus = previouslySaved.url === latest.url && JSON.stringify(previouslySaved.fallbackUrls || []) === JSON.stringify(latest.fallbackUrls || []) ? previouslySaved.status : probed.previousStatus;
               const telegramEnabled = this.isTelegramEnabled(env, baseConfig);
               const shouldSendOffline = this.shouldSendOfflineAlert(mergedServer);
               if (mergedServer.status === 'offline') {
