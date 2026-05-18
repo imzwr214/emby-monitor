@@ -1354,7 +1354,7 @@ const HTML_CONTENT = `
                     const res = await apiFetch('/api/public/share-token', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ includeTelegramProfile: publicShareIncludeProfile, lifetime: publicShareLifetime })
+                        body: JSON.stringify({ includeTelegramProfile: publicShareIncludeProfile, lifetime: publicShareLifetime, hideCounts: publicShareHideCounts })
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok || !data.ok || !data.url) throw new Error(data.error || '生成公开链接失败');
