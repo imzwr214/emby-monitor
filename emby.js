@@ -1196,25 +1196,48 @@ const HTML_CONTENT = `
                 return () => { stopAutoRefreshTimer(); document.removeEventListener('visibilitychange', handleVisibility); };
             }, [isLoading]);
 
-            const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm) => {
+            const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
                 const serverById = new Map(servers.map(s => [s.id, s]));
                 const mergedServers = newServers.map((server) => {
                     const existing = serverById.get(server.id);
                     if (existing && existing.mediaStats && !server.mediaStats) return { ...server, mediaStats: existing.mediaStats };
                     return server;
                 });
+                const saveConfig = async (serversToSave, iconsToSave, telegramToSave, baseRevision) => {
+                    const nextUpdatedAt = Date.now();
+                    setConfigUpdatedAt(nextUpdatedAt);
+                    configUpdatedAtRef.current = nextUpdatedAt;
+                    const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: serversToSave, icons: iconsToSave, telegram: telegramToSave, updatedAt: nextUpdatedAt, baseRevision }) });
+                    const saveResult = await res.json().catch(() => ({}));
+                    return { res, saveResult, nextUpdatedAt };
+                };
                 setServers(mergedServers);
                 setIconLib(newIcons || {});
                 setTelegramForm(nextTelegram);
-                const nextUpdatedAt = Date.now();
-                setConfigUpdatedAt(nextUpdatedAt);
-                configUpdatedAtRef.current = nextUpdatedAt;
-                const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: mergedServers, icons: newIcons, telegram: nextTelegram, updatedAt: nextUpdatedAt, baseRevision: configRevisionRef.current }) });
-                const saveResult = await res.json().catch(() => ({}));
+                let { res, saveResult, nextUpdatedAt } = await saveConfig(mergedServers, newIcons, nextTelegram, configRevisionRef.current);
+                if (!res.ok && res.status === 409 && options.addServerOnConflict) {
+                    const latestRes = await apiFetch('/api/config');
+                    if (!latestRes.ok) throw new Error('配置已被其它页面修改，请刷新后再保存');
+                    const latestConfig = await latestRes.json();
+                    const latestServers = Array.isArray(latestConfig.servers) ? latestConfig.servers : [];
+                    const retryServers = latestServers.some(server => server.id === options.addServerOnConflict.id) ? latestServers : [...latestServers, options.addServerOnConflict];
+                    const retryIcons = latestConfig.icons || {};
+                    const retryTelegram = latestConfig.telegram || nextTelegram;
+                    const latestUpdatedAt = Number(latestConfig.updatedAt) || configUpdatedAtRef.current;
+                    const latestRevision = latestConfig.revision || '';
+                    setConfigUpdatedAt(latestUpdatedAt);
+                    setConfigRevision(latestRevision);
+                    configUpdatedAtRef.current = latestUpdatedAt;
+                    configRevisionRef.current = latestRevision;
+                    setServers(retryServers);
+                    setIconLib(retryIcons);
+                    setTelegramForm(retryTelegram);
+                    ({ res, saveResult, nextUpdatedAt } = await saveConfig(retryServers, retryIcons, retryTelegram, latestRevision));
+                }
                 if (!res.ok) {
                     if (res.status === 409) {
                         await fetchConfigData();
-                        throw new Error('配置已被其它页面或 KV 修改，请刷新后再保存');
+                        throw new Error('配置已被其它页面修改，请检查最新配置后重新保存');
                     }
                     throw new Error('配置保存失败');
                 }
@@ -1433,6 +1456,7 @@ const HTML_CONTENT = `
                 };
 
                 let updatedServers;
+                let newServer = null;
                 if (editingServerId) {
                     updatedServers = servers.map((server) => {
                         if (server.id !== editingServerId) return server;
@@ -1440,16 +1464,17 @@ const HTML_CONTENT = `
                         return { ...server, name: addForm.name, url: finalUrl, status: urlChanged ? 'updating' : server.status, latency: urlChanged ? 0 : server.latency, mediaStats: buildMediaStats(server) };
                     });
                 } else {
-                    const newServer = {
+                    newServer = {
                         id: Date.now(), name: addForm.name, url: finalUrl, customIcon: null, status: 'updating',
                         totalChecks: 0, successfulChecks: 0, uptime: "0.0", latency: 0, lastCheck: 0, history: [], mediaStats: buildMediaStats(null)
                     };
                     updatedServers = [...servers, newServer];
                 }
 
-                const savedUpdatedAt = await syncToCloud(updatedServers, iconLib);
+                const savedUpdatedAt = await syncToCloud(updatedServers, iconLib, telegramForm, newServer ? { addServerOnConflict: newServer } : {});
+                const serversToPing = newServer ? [...servers.filter(server => server.id !== newServer.id), newServer] : updatedServers;
                 setIsAddModalOpen(false); resetServerForm(); setActiveTab('cards');
-                await manualPing(updatedServers, savedUpdatedAt);
+                await manualPing(serversToPing, savedUpdatedAt);
                 } catch(e) {
                     console.error('保存服务器失败', e);
                     alert(e.message || '服务器保存失败，请稍后重试');
