@@ -879,7 +879,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.18.1';
+        const APP_VERSION = '2026.05.18.2';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -1827,7 +1827,7 @@ const HTML_CONTENT = `
                                                 <div className="server-card-section server-card-media rounded-2xl p-4 relative z-10">
                                                     <div className="flex items-center justify-between mb-3">
                                                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">资源库较昨日变化</span>
-                                                        {s.mediaStats.lastError && <span className="text-[10px] text-rose-500 font-bold" title={s.mediaStats.lastError}>更新失败</span>}
+                                                        {s.mediaStats.lastError && <button onClick={() => alert(s.mediaStats.lastError)} className="text-[10px] text-rose-500 font-bold" title={s.mediaStats.lastError}>更新失败</button>}
                                                     </div>
                                                     <div className="grid grid-cols-3 gap-2 divide-x divide-slate-200/60 text-center">
                                                         {[
@@ -2191,10 +2191,11 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.18.1',
+  APP_VERSION: '2026.05.18.2',
   APP_UPDATE_NOTES: [
-      '针对移动端重新设计界面布局，让手机端更像独立 App 使用体验。',
-      '添加 iPhone Safari 添加到主屏幕支持，包含 PWA manifest 和应用图标。'
+      '修复启用媒体库资源统计时可能影响在线状态判定的问题。',
+      '右上角刷新状态按钮会同时强制刷新媒体库资源数量。',
+      '媒体库资源统计失败时，点击错误标签可查看具体原因。'
   ],
   UPDATE_REPO_OWNER: 'pototazhang',
   UPDATE_REPO_NAME: 'emby-js',
