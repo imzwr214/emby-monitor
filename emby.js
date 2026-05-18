@@ -908,7 +908,7 @@ const HTML_CONTENT = `
     </script>
     <script type="text/babel" data-presets="react">
         const { useState, useEffect, useRef, useMemo } = React;
-        const APP_VERSION = '2026.05.19.7';
+        const APP_VERSION = '2026.05.19.8';
 
         // --- 内置 SVG 图标 ---
         const Icon = ({ path, className = "w-4 h-4", viewBox = "0 0 24 24" }) => (
@@ -2582,7 +2582,7 @@ const HTML_CONTENT = `
 `;
 
 export default {
-  APP_VERSION: '2026.05.19.7',
+  APP_VERSION: '2026.05.19.8',
   APP_UPDATE_NOTES: [
       '修复公开页隐藏数量设置在新分享链接中未稳定生效的问题。',
       '修复公开页隐藏媒体库数量设置没有写入新分享链接的问题。',
@@ -2650,10 +2650,7 @@ export default {
       const ownerProfile = tokenRecord.telegramProfile || null;
       const publicPageState = {
           ownerProfile,
-          hideCounts: Boolean(tokenRecord.hideCounts),
-          movieCount: Number(tokenRecord.movieCount) || 0,
-          seriesCount: Number(tokenRecord.seriesCount) || 0,
-          episodeCount: Number(tokenRecord.episodeCount) || 0
+          hideCounts: Boolean(tokenRecord.hideCounts)
       };
       return new Response(this.buildPublicPage(config, publicPageState), {
           headers: {
@@ -2671,22 +2668,11 @@ export default {
       const token = this.generatePublicShareToken();
       const expiresAt = lifetime === 'forever' ? 0 : Date.now() + (60 * 60 * 1000);
       const config = await this.loadConfig(env);
-      const clean = this.sanitizeConfig(config);
-      const mediaCounts = clean.servers.reduce((acc, server) => {
-          const counts = server && server.mediaStats && server.mediaStats.counts ? server.mediaStats.counts : {};
-          acc.movieCount += Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : 0;
-          acc.seriesCount += Number.isFinite(Number(counts.series)) ? Number(counts.series) : 0;
-          acc.episodeCount += Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : 0;
-          return acc;
-      }, { movieCount: 0, seriesCount: 0, episodeCount: 0 });
       const profile = body.includeTelegramProfile ? await this.readTelegramChatProfile(env, config) : null;
       await this.storePublicShareToken(env, token, expiresAt, {
           origin: url.origin || '',
           telegramProfile: profile,
-          hideCounts: Boolean(body.hideCounts),
-          movieCount: mediaCounts.movieCount,
-          seriesCount: mediaCounts.seriesCount,
-          episodeCount: mediaCounts.episodeCount
+          hideCounts: Boolean(body.hideCounts)
       });
       const baseUrl = url.origin || '';
       const publicUrl = baseUrl.replace(/\/$/, '') + '/public/' + token;
@@ -3239,11 +3225,6 @@ export default {
       const clean = this.sanitizeConfig(config);
       const ownerProfile = pageState && pageState.ownerProfile ? pageState.ownerProfile : null;
       const hideCounts = Boolean(pageState && pageState.hideCounts);
-      const sharedCounts = {
-          movie: Number(pageState.movieCount) || 0,
-          series: Number(pageState.seriesCount) || 0,
-          episode: Number(pageState.episodeCount) || 0
-      };
       const maskCount = (value) => {
           const text = String(Math.max(0, Number(value) || 0));
           if (!hideCounts) return text;
@@ -3265,9 +3246,9 @@ export default {
               '<div class="server-title"><h2>' + this.escapeHtml(server.name) + '</h2><div class="status-pill status-' + statusClass + '"><i></i>' + statusText + '</div></div>' +
               '</div>' +
               '<div class="metric-grid">' +
-                  '<div class="metric metric-movie"><span>电影</span><strong>' + this.escapeHtml(Number.isFinite(Number(sharedCounts.movie)) ? maskCount(sharedCounts.movie) : '--') + '</strong></div>' +
-                  '<div class="metric metric-series"><span>剧集</span><strong>' + this.escapeHtml(Number.isFinite(Number(sharedCounts.series)) ? maskCount(sharedCounts.series) : '--') + '</strong></div>' +
-                  '<div class="metric metric-episode"><span>总集数</span><strong>' + this.escapeHtml(Number.isFinite(Number(sharedCounts.episode)) ? maskCount(sharedCounts.episode) : '--') + '</strong></div>' +
+                  '<div class="metric metric-movie"><span>电影</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.movie)) ? maskCount(counts.movie) : '--') + '</strong></div>' +
+                  '<div class="metric metric-series"><span>剧集</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.series)) ? maskCount(counts.series) : '--') + '</strong></div>' +
+                  '<div class="metric metric-episode"><span>总集数</span><strong>' + this.escapeHtml(Number.isFinite(Number(counts.episode)) ? maskCount(counts.episode) : '--') + '</strong></div>' +
               '</div>' +
           '</article>';
       }).join('');
