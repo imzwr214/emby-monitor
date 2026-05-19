@@ -74,7 +74,7 @@
       let lastError = '最后播放时间读取失败';
       const queryParts = [
           'Recursive=true',
-          'Limit=1',
+          'Limit=5',
           'SortBy=DatePlayed',
           'SortOrder=Descending',
           'IsPlayed=true',
@@ -83,8 +83,8 @@
       ];
       const queries = [
           '/Users/' + encodeURIComponent(userId) + '/Items?' + queryParts.join('&') + '&api_key=' + encodeURIComponent(token),
-          '/Users/' + encodeURIComponent(userId) + '/Items/Latest?Limit=1&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token),
-          '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Recursive=true&Limit=1&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&api_key=' + encodeURIComponent(token)
+          '/Users/' + encodeURIComponent(userId) + '/Items/Latest?Limit=5&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token),
+          '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Recursive=true&Limit=5&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&api_key=' + encodeURIComponent(token)
       ];
       const extractItems = (data) => {
           if (Array.isArray(data)) return data;
@@ -107,15 +107,17 @@
                       continue;
                   }
                   const data = await response.json();
-                  const item = extractItems(data)[0] || null;
-                  const playedAt = extractPlayedAt(item);
-                  if (playedAt) return playedAt;
-                  if (item && item.Id) {
-                      const detailResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(item.Id) + '?EnableUserData=true&Fields=UserData&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
-                      if (detailResponse.ok) {
-                          const detail = await detailResponse.json();
-                          const detailPlayedAt = extractPlayedAt(detail);
-                          if (detailPlayedAt) return detailPlayedAt;
+                  const items = extractItems(data);
+                  for (const item of items) {
+                      const playedAt = extractPlayedAt(item);
+                      if (playedAt) return playedAt;
+                      if (item && item.Id) {
+                          const detailResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(item.Id) + '?EnableUserData=true&Fields=UserData&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
+                          if (detailResponse.ok) {
+                              const detail = await detailResponse.json();
+                              const detailPlayedAt = extractPlayedAt(detail);
+                              if (detailPlayedAt) return detailPlayedAt;
+                          }
                       }
                   }
               } catch(e) {
