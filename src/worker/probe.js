@@ -301,7 +301,8 @@
           mergedConfig.nextCursor = batchEnd < baseConfig.servers.length ? batchEnd : 0;
           mergedConfig.hasMore = batchEnd < baseConfig.servers.length;
       }
-      const keepAliveResults = await Promise.all(mergedConfig.servers.map((server) => this.refreshKeepAliveIfNeeded(server)));
+      const keepAliveTargets = forceMedia ? mergedConfig.servers.filter((server) => batchIds.has(server.id)) : mergedConfig.servers;
+      const keepAliveResults = await Promise.all(keepAliveTargets.map((server) => this.refreshKeepAliveIfNeeded(server)));
       for (const result of keepAliveResults) {
           if (!result || !result.touched) continue;
           const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
