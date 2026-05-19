@@ -78,11 +78,17 @@
           if (Array.isArray(data.Items)) return data.Items;
           return [];
       };
+      const parseEmbyDate = (value) => {
+          const text = String(value || '').trim();
+          if (!text) return 0;
+          const normalized = /(?:z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : text + 'Z';
+          const time = Date.parse(normalized);
+          return Number.isFinite(time) && time > 0 ? time : 0;
+      };
       const extractPlayedAt = (item) => {
           if (!item) return 0;
           const played = item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : (item.DatePlayed || '');
-          const playedAt = played ? Date.parse(played) : 0;
-          return Number.isFinite(playedAt) && playedAt > 0 ? playedAt : 0;
+          return parseEmbyDate(played);
       };
       const queryVariants = [
           ['SortBy=DatePlayed', 'SortOrder=Descending', 'IsPlayed=true'],
@@ -90,6 +96,7 @@
           ['SortBy=DatePlayed', 'SortOrder=Descending'],
           ['SortBy=DateLastMediaAdded', 'SortOrder=Descending']
       ];
+      let latestPlayedAt = 0;
       for (const base of bases) {
           const pageLimit = 50;
           const maxScan = 300;
@@ -116,13 +123,13 @@
                       const hasTotalCount = Number.isFinite(totalCount) && totalCount > 0;
                       for (const item of items) {
                           const playedAt = extractPlayedAt(item);
-                          if (playedAt) return playedAt;
-                          if (item && item.Id) {
+                          if (playedAt > latestPlayedAt) latestPlayedAt = playedAt;
+                          if (!playedAt && item && item.Id) {
                               const detailResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(item.Id) + '?EnableUserData=true&Fields=UserData&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
                               if (detailResponse.ok) {
                                   const detail = await detailResponse.json();
                                   const detailPlayedAt = extractPlayedAt(detail);
-                                  if (detailPlayedAt) return detailPlayedAt;
+                                  if (detailPlayedAt > latestPlayedAt) latestPlayedAt = detailPlayedAt;
                               }
                           }
                       }
@@ -135,5 +142,6 @@
               }
           }
       }
+      if (latestPlayedAt) return latestPlayedAt;
       throw new Error(lastError);
   },
