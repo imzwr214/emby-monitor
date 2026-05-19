@@ -4,7 +4,7 @@
  * 负责 JSON 响应工具和后台管理 Token 校验。
  * `/api/config`、测速、分享管理和自更新等后台接口必须使用这里的鉴权。
  */
-  json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } }); },
+  json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }); },
 
   requireAdmin(request, env) {
       const token = String(env.ADMIN_TOKEN || '').trim();

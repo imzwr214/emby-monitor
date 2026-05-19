@@ -70,10 +70,11 @@ const App = () => {
         return fetch(path, { ...options, headers });
     };
 
-    const fetchConfigData = async () => {
+    const fetchConfigData = async (options = {}) => {
         try {
-            const res = await apiFetch('/api/config');
+            const res = await apiFetch('/api/config', { cache: 'no-store' });
             if (res.status === 401 || res.status === 403) {
+                if (options.silentAuth) return;
                 const errorData = await res.json().catch(() => ({}));
                 if (errorData.error === 'ADMIN_TOKEN_REQUIRED') {
                     setAccessDenied('未配置 ADMIN_TOKEN，后台已被锁定。请先在 Cloudflare Worker 环境变量中设置 ADMIN_TOKEN。');
@@ -83,7 +84,7 @@ const App = () => {
                 const token = prompt('请输入管理 Token');
                 if (token) {
                     localStorage.setItem('emby_admin_token', token);
-                    return fetchConfigData();
+                    return fetchConfigData(options);
                 }
                 setAccessDenied('未提供管理 Token，已阻止进入后台。');
                 setIsLoading(false);
@@ -103,11 +104,19 @@ const App = () => {
                 setIconLib(data.icons);
                 setIconInput(localStorage.getItem('last_icon_input') || "");
             }
-            checkForUpdate(false);
+            if (!options.skipUpdateCheck) checkForUpdate(false);
         } catch(e) { console.error("读取配置失败", e); }
     };
 
     useEffect(() => { fetchConfigData().finally(() => setIsLoading(false)); }, []);
+    useEffect(() => {
+        const timer = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchConfigData({ skipUpdateCheck: true, silentAuth: true });
+            }
+        }, 60 * 1000);
+        return () => clearInterval(timer);
+    }, []);
     useEffect(() => { configRevisionRef.current = configRevision; }, [configRevision]);
     useEffect(() => { configUpdatedAtRef.current = configUpdatedAt; }, [configUpdatedAt]);
     useEffect(() => { if (iconModalTarget) setIconSearch(''); }, [iconModalTarget]);
