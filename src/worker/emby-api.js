@@ -77,15 +77,20 @@
           'Limit=1',
           'SortBy=DatePlayed',
           'SortOrder=Descending',
-          'Filters=IsPlayed',
+          'IsPlayed=true',
           'EnableUserData=true',
           'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'
       ];
       const queries = [
           '/Users/' + encodeURIComponent(userId) + '/Items?' + queryParts.join('&') + '&api_key=' + encodeURIComponent(token),
-          '/Users/' + encodeURIComponent(userId) + '/Items/Latest?' + queryParts.join('&') + '&api_key=' + encodeURIComponent(token),
-          '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Recursive=true&Limit=1&SortBy=DatePlayed&SortOrder=Descending&EnableUserData=true&api_key=' + encodeURIComponent(token)
+          '/Users/' + encodeURIComponent(userId) + '/Items/Latest?Limit=1&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token),
+          '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Recursive=true&Limit=1&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&api_key=' + encodeURIComponent(token)
       ];
+      const extractItems = (data) => {
+          if (Array.isArray(data)) return data;
+          if (data && Array.isArray(data.Items)) return data.Items;
+          return [];
+      };
       for (const base of bases) {
           for (const path of queries) {
               try {
@@ -96,7 +101,7 @@
                       continue;
                   }
                   const data = await response.json();
-                  const item = Array.isArray(data.Items) && data.Items.length ? data.Items[0] : null;
+                  const item = extractItems(data)[0] || null;
                   const played = item && item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : (item && item.DatePlayed ? item.DatePlayed : '');
                   const playedAt = played ? Date.parse(played) : 0;
                   if (Number.isFinite(playedAt) && playedAt > 0) return playedAt;
