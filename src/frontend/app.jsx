@@ -1061,13 +1061,13 @@ const App = () => {
                         <div className="mobile-form-body space-y-4">
                             {/* 程序更新 */}
                             <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
-                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                    <div>
+                                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                                    <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2 mb-1 text-slate-700 font-bold"><Icons.DownloadCloud className="w-4 h-4 text-blue-500" />程序更新</div>
                                         <div className="text-xs font-bold text-slate-500">
                                             当前版本: {updateInfo ? updateInfo.currentVersion : APP_VERSION}
-                                            {updateInfo && updateInfo.hasUpdate && <span className="ml-3 text-amber-500">发现新版本: {updateInfo.latestVersion}</span>}
-                                            {updateInfo && !updateInfo.hasUpdate && updateInfo.latestVersion && updateInfo.latestVersion !== 'unknown' && <span className="ml-3 text-emerald-600">远端版本: {updateInfo.latestVersion}</span>}
+                                            {updateInfo && updateInfo.hasUpdate && <span className="ml-3 inline-block text-amber-500">发现新版本: {updateInfo.latestVersion}</span>}
+                                            {updateInfo && !updateInfo.hasUpdate && updateInfo.latestVersion && updateInfo.latestVersion !== 'unknown' && <span className="ml-3 inline-block text-emerald-600">远端版本: {updateInfo.latestVersion}</span>}
                                         </div>
                                         {updateInfo && (updateInfo.error || (Array.isArray(updateInfo.missing) && updateInfo.missing.length > 0) || updateInfo.sourceUrl) && (
                                             <div className="mt-3 space-y-1 text-[11px] font-bold text-slate-500">
@@ -1090,11 +1090,11 @@ const App = () => {
                                             更新建议：公开页头像展示、大陆 IP 限制和公开链接设置已完善，建议尽快更新。
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => checkForUpdate(true)} disabled={isCheckingUpdate || isApplyingUpdate} className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition-all shadow-sm">
+                                    <div className="grid grid-cols-2 md:flex gap-2 md:flex-shrink-0">
+                                        <button onClick={() => checkForUpdate(true)} disabled={isCheckingUpdate || isApplyingUpdate} className="px-3 sm:px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition-all shadow-sm whitespace-nowrap">
                                             {isCheckingUpdate ? '检查中...' : '检查更新'}
                                         </button>
-                                        <button onClick={applyUpdate} disabled={!updateInfo || !updateInfo.hasUpdate || isApplyingUpdate || !updateInfo.canUpdate} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-40 rounded-xl text-xs font-bold transition-all shadow-sm">
+                                        <button onClick={applyUpdate} disabled={!updateInfo || !updateInfo.hasUpdate || isApplyingUpdate || !updateInfo.canUpdate} className="px-3 sm:px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-40 rounded-xl text-xs font-bold transition-all shadow-sm whitespace-nowrap">
                                             {isApplyingUpdate ? '更新中...' : '一键更新'}
                                         </button>
                                     </div>
