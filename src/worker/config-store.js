@@ -26,7 +26,7 @@
       const clean = this.sanitizeConfig(config);
       const settingsOnly = {
           icons: clean.icons, telegram: clean.telegram,
-          servers: clean.servers.map((server) => ({ id: server.id, name: server.name, url: server.url, fallbackUrls: server.fallbackUrls, customIcon: server.customIcon, mediaStats: { enabled: Boolean(server.mediaStats && server.mediaStats.enabled), username: server.mediaStats ? server.mediaStats.username : '', password: server.mediaStats ? server.mediaStats.password : '' } }))
+          servers: clean.servers.map((server) => ({ id: server.id, name: server.name, url: server.url, fallbackUrls: server.fallbackUrls, customIcon: server.customIcon, mediaStats: { enabled: Boolean(server.mediaStats && server.mediaStats.enabled), username: server.mediaStats ? server.mediaStats.username : '', password: server.mediaStats ? server.mediaStats.password : '', keepAlive: server.mediaStats ? { enabled: Boolean(server.mediaStats.keepAlive && server.mediaStats.keepAlive.enabled), periodDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.periodDays : 30, alertDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.alertDays : 27 } : { enabled: false, periodDays: 30, alertDays: 27 } } }))
       };
       const text = JSON.stringify(settingsOnly);
       let hash = 2166136261;
@@ -104,8 +104,22 @@
 
   normalizeMediaStats(mediaStats) {
       const emptyCounts = { movie: 0, series: 0, episode: 0 };
+      const normalizeKeepAlive = (value) => {
+          const source = value && typeof value === 'object' ? value : {};
+          const periodDays = Number.isFinite(Number(source.periodDays)) && Number(source.periodDays) > 0 ? Math.floor(Number(source.periodDays)) : 30;
+          const rawAlertDays = Number.isFinite(Number(source.alertDays)) && Number(source.alertDays) > 0 ? Math.floor(Number(source.alertDays)) : 27;
+          const alertDays = Math.min(rawAlertDays, Math.max(1, periodDays - 1));
+          return {
+              enabled: Boolean(source.enabled),
+              periodDays,
+              alertDays,
+              lastPlayedAt: Number.isFinite(Number(source.lastPlayedAt)) ? Math.max(0, Number(source.lastPlayedAt)) : 0,
+              lastCheckedAt: Number.isFinite(Number(source.lastCheckedAt)) ? Math.max(0, Number(source.lastCheckedAt)) : 0,
+              alertSentAt: Number.isFinite(Number(source.alertSentAt)) ? Math.max(0, Number(source.alertSentAt)) : 0
+          };
+      };
       if (!mediaStats || typeof mediaStats !== 'object') {
-          return { enabled: false, username: '', password: '', accessToken: '', deviceId: '', lastCheck: 0, lastError: '', counts: null, previousCounts: null, delta24h: null, todayCounts: null, yesterdayCounts: null, dailyDelta: null, dailyKey: '' };
+          return { enabled: false, username: '', password: '', accessToken: '', userId: '', deviceId: '', lastCheck: 0, lastError: '', counts: null, previousCounts: null, delta24h: null, todayCounts: null, yesterdayCounts: null, dailyDelta: null, dailyKey: '', keepAlive: normalizeKeepAlive(null) };
       }
       const cleanCounts = (counts) => {
           if (!counts || typeof counts !== 'object') return null;
@@ -116,10 +130,11 @@
           return { movie: Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : 0, series: Number.isFinite(Number(counts.series)) ? Number(counts.series) : 0, episode: Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : 0, time: Number.isFinite(Number(counts.time)) ? Number(counts.time) : 0 };
       };
       const clean = {
-          enabled: Boolean(mediaStats.enabled), username: String(mediaStats.username || '').slice(0, 120), password: String(mediaStats.password || ''), accessToken: String(mediaStats.accessToken || ''),
+          enabled: Boolean(mediaStats.enabled), username: String(mediaStats.username || '').slice(0, 120), password: String(mediaStats.password || ''), accessToken: String(mediaStats.accessToken || ''), userId: String(mediaStats.userId || ''),
           deviceId: String(mediaStats.deviceId || ('forward-' + Math.random().toString(36).slice(2))).slice(0, 120), lastCheck: Number.isFinite(Number(mediaStats.lastCheck)) ? Number(mediaStats.lastCheck) : 0,
           lastError: String(mediaStats.lastError || '').slice(0, 160), counts: cleanCounts(mediaStats.counts), previousCounts: cleanCounts(mediaStats.previousCounts), delta24h: cleanDeltaCounts(mediaStats.delta24h),
-          todayCounts: cleanCounts(mediaStats.todayCounts), yesterdayCounts: cleanCounts(mediaStats.yesterdayCounts), dailyDelta: cleanDeltaCounts(mediaStats.dailyDelta), dailyKey: String(mediaStats.dailyKey || '')
+          todayCounts: cleanCounts(mediaStats.todayCounts), yesterdayCounts: cleanCounts(mediaStats.yesterdayCounts), dailyDelta: cleanDeltaCounts(mediaStats.dailyDelta), dailyKey: String(mediaStats.dailyKey || ''),
+          keepAlive: normalizeKeepAlive(mediaStats.keepAlive)
       };
       if (!clean.dailyDelta && clean.counts && clean.previousCounts) {
           clean.dailyDelta = { movie: clean.counts.movie - clean.previousCounts.movie, series: clean.counts.series - clean.previousCounts.series, episode: clean.counts.episode - clean.previousCounts.episode, time: clean.counts.time };

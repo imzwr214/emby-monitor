@@ -111,23 +111,98 @@
 
       try {
           let token = media.accessToken;
+          let userId = media.userId || '';
           let counts;
           try {
-              if (!token) token = await this.loginEmbyForMedia(server);
+              if (!token) {
+                  const login = await this.loginEmbyForMedia(server);
+                  token = login.accessToken;
+                  userId = login.userId || userId;
+              }
               counts = await this.fetchEmbyMediaCounts(server, token);
           } catch(e) {
-              token = await this.loginEmbyForMedia(server);
+              const login = await this.loginEmbyForMedia(server);
+              token = login.accessToken;
+              userId = login.userId || userId;
               counts = await this.fetchEmbyMediaCounts(server, token);
           }
           const dailyStats = this.buildDailyMediaStats(media, counts, now);
           const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
           server.mediaStats = {
-              ...media, accessToken: token, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
+              ...media, accessToken: token, userId, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
               lastCheck: counts.time, lastError: ''
           };
       } catch(e) { server.mediaStats = { ...media, lastError: e.message || '媒体库统计失败' }; }
       return server;
+  },
+
+  getKeepAliveState(server, now = Date.now()) {
+      const keepAlive = server && server.mediaStats ? server.mediaStats.keepAlive : null;
+      if (!keepAlive || !keepAlive.enabled) return { enabled: false, label: '保号', tone: 'disabled', days: null };
+      const periodDays = Math.max(1, Math.floor(Number(keepAlive.periodDays) || 30));
+      const lastPlayedAt = Number(keepAlive.lastPlayedAt) || 0;
+      if (!lastPlayedAt) return { enabled: true, label: '保号', tone: 'warning', days: null };
+      const inactiveDays = Math.max(0, Math.floor((now - lastPlayedAt) / (24 * 60 * 60 * 1000)));
+      const remainingDays = periodDays - inactiveDays;
+      if (remainingDays < 0) return { enabled: true, label: '!逾期', tone: 'danger', days: remainingDays };
+      if (remainingDays <= 3) return { enabled: true, label: '!' + remainingDays + '天', tone: 'warning', days: remainingDays };
+      return { enabled: true, label: remainingDays + '天', tone: 'ok', days: remainingDays };
+  },
+
+  buildKeepAliveMessage(server, keepAlive, inactiveDays, lastPlayedAt) {
+      const periodDays = Math.max(1, Math.floor(Number(keepAlive.periodDays) || 30));
+      const remainingDays = periodDays - inactiveDays;
+      const lastPlayedText = lastPlayedAt ? new Date(lastPlayedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '未知';
+      return [
+          '⚠️ 保号提醒',
+          '',
+          '服务器：' + (server.name || server.url || 'Unknown'),
+          '',
+          '已有 ' + inactiveDays + ' 天未播放',
+          '',
+          '活跃周期：' + periodDays + ' 天',
+          '',
+          '距账号删除还剩：' + remainingDays + ' 天',
+          '',
+          '最后播放：' + lastPlayedText,
+          '',
+          '请尽快播放任意内容以保留账号。'
+      ].join('\n');
+  },
+
+  async refreshKeepAliveIfNeeded(server, now = Date.now()) {
+      const media = server.mediaStats || {};
+      const keepAlive = media.keepAlive || {};
+      if (!keepAlive.enabled) return { server, alert: null, touched: false };
+      const nextKeepAlive = { ...keepAlive, lastCheckedAt: now };
+      let token = media.accessToken || '';
+      let userId = media.userId || '';
+      try {
+          const login = await this.loginEmbyForMedia(server);
+          token = login.accessToken;
+          userId = login.userId || userId;
+          const lastPlayedAt = await this.fetchEmbyLastPlayed(server, token, userId);
+          const previousPlayedAt = Number(keepAlive.lastPlayedAt) || 0;
+          if (lastPlayedAt && lastPlayedAt > previousPlayedAt) nextKeepAlive.alertSentAt = 0;
+          nextKeepAlive.lastPlayedAt = lastPlayedAt || previousPlayedAt;
+          const effectiveLastPlayedAt = nextKeepAlive.lastPlayedAt;
+          const periodDays = Math.max(1, Math.floor(Number(nextKeepAlive.periodDays) || 30));
+          const alertDays = Math.min(Math.max(1, Math.floor(Number(nextKeepAlive.alertDays) || 27)), Math.max(1, periodDays - 1));
+          nextKeepAlive.periodDays = periodDays;
+          nextKeepAlive.alertDays = alertDays;
+          let alert = null;
+          if (effectiveLastPlayedAt) {
+              const inactiveDays = Math.max(0, Math.floor((now - effectiveLastPlayedAt) / (24 * 60 * 60 * 1000)));
+              const canRepeat = !nextKeepAlive.alertSentAt || now - nextKeepAlive.alertSentAt >= 24 * 60 * 60 * 1000;
+              if (inactiveDays >= alertDays && canRepeat) {
+                  alert = { message: this.buildKeepAliveMessage(server, nextKeepAlive, inactiveDays, effectiveLastPlayedAt), serverId: server.id, checkedAt: now };
+              }
+          }
+          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert, touched: true };
+      } catch(e) {
+          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert: null, touched: true };
+      }
   },
 
   async runProbeLogic(env, config, options = {}) {
@@ -221,6 +296,15 @@
           mergedConfig.nextCursor = batchEnd < baseConfig.servers.length ? batchEnd : 0;
           mergedConfig.hasMore = batchEnd < baseConfig.servers.length;
       }
+      const keepAliveResults = await Promise.all(mergedConfig.servers.map((server) => this.refreshKeepAliveIfNeeded(server)));
+      for (const result of keepAliveResults) {
+          if (!result || !result.touched) continue;
+          const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
+          if (index >= 0) mergedConfig.servers[index] = result.server;
+          if (result.alert && this.isTelegramEnabled(env, baseConfig)) {
+              notifyQueue.push({ ...result.alert, kind: 'keepAlive' });
+          }
+      }
       if (notifyQueue.length) {
           console.log('[notify] queue prepared', notifyQueue.map((item) => ({ kind: item.kind, serverId: item.serverId || null, lastCheck: item.lastCheck || null })));
       }
@@ -230,11 +314,14 @@
           let updated = false;
           for (const [index, ok] of sendResults.entries()) {
               const item = notifyQueue[index];
-              if (!ok || !item || item.kind !== 'offline') continue;
+              if (!ok || !item) continue;
               const targetId = item.serverId;
               const targetServer = mergedConfig.servers.find((server) => server.id === targetId);
-              if (targetServer) {
+              if (targetServer && item.kind === 'offline') {
                   targetServer.offlineAlertSentAt = item.lastCheck;
+                  updated = true;
+              } else if (targetServer && item.kind === 'keepAlive' && targetServer.mediaStats && targetServer.mediaStats.keepAlive) {
+                  targetServer.mediaStats = { ...targetServer.mediaStats, keepAlive: { ...targetServer.mediaStats.keepAlive, alertSentAt: item.checkedAt || Date.now() } };
                   updated = true;
               }
           }

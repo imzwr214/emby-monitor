@@ -32,6 +32,7 @@ const App = () => {
     const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
     const [fallbackUrls, setFallbackUrls] = useState([]);
     const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
+    const [keepAliveForm, setKeepAliveForm] = useState({ enabled: false, periodDays: '', alertDays: '' });
     const [quickImportText, setQuickImportText] = useState('');
     const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
     const [isLoading, setIsLoading] = useState(true);
@@ -56,6 +57,7 @@ const App = () => {
     const [generatingCardShareId, setGeneratingCardShareId] = useState(null);
     const [toastMessage, setToastMessage] = useState('');
     const privacyMenuRef = useRef(null);
+    const keepAliveSectionRef = useRef(null);
     const configRevisionRef = useRef('');
     const configUpdatedAtRef = useRef(0);
 
@@ -346,6 +348,22 @@ const App = () => {
             uptime: valid.length ? ((online / valid.length) * 100).toFixed(1) : '---'
         };
     };
+    const getKeepAliveButtonState = (server) => {
+        const keepAlive = server && server.mediaStats ? server.mediaStats.keepAlive : null;
+        if (!keepAlive || !keepAlive.enabled) {
+            return { text: '保号', className: 'bg-slate-100 text-slate-500 hover:bg-slate-200' };
+        }
+        const periodDays = Math.max(1, Number(keepAlive.periodDays) || 30);
+        const lastPlayedAt = Number(keepAlive.lastPlayedAt) || 0;
+        if (!lastPlayedAt) {
+            return { text: '保号', className: 'bg-amber-50 text-amber-600 hover:bg-amber-100' };
+        }
+        const inactiveDays = Math.max(0, Math.floor((Date.now() - lastPlayedAt) / (24 * 60 * 60 * 1000)));
+        const remainingDays = periodDays - inactiveDays;
+        if (remainingDays < 0) return { text: '!逾期', className: 'bg-rose-50 text-rose-600 hover:bg-rose-100' };
+        if (remainingDays <= 3) return { text: '!' + remainingDays + '天', className: 'bg-orange-50 text-orange-600 hover:bg-orange-100' };
+        return { text: remainingDays + '天', className: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' };
+    };
 
     const stripProtocol = (value) => {
         const text = String(value || '');
@@ -355,11 +373,13 @@ const App = () => {
         return text;
     };
     const cleanPortInput = (value) => value.split('').filter(ch => ch >= '0' && ch <= '9').join('').slice(0, 5);
+    const cleanPositiveIntInput = (value) => value.split('').filter(ch => ch >= '0' && ch <= '9').join('').replace(/^0+/, '').slice(0, 4);
 
     const resetServerForm = () => {
         setAddForm({ name: '', protocol: 'https://', host: '', port: '443' });
         setFallbackUrls([]);
         setMediaForm({ enabled: false, username: '', password: '' });
+        setKeepAliveForm({ enabled: false, periodDays: '', alertDays: '' });
         setQuickImportText('');
         setEditingServerId(null);
     };
@@ -492,8 +512,9 @@ const App = () => {
     };
 
     const openAddServerModal = () => { resetServerForm(); setIsAddModalOpen(true); };
-    const openEditServerModal = (server) => {
+    const openEditServerModal = (server, focusKeepAlive = false) => {
         const parsed = splitServerUrl(server.url || '');
+        const keepAlive = server.mediaStats && server.mediaStats.keepAlive ? server.mediaStats.keepAlive : {};
         setEditingServerId(server.id);
         setAddForm({ name: server.name || '', protocol: parsed.protocol, host: parsed.host, port: parsed.port });
         setFallbackUrls(Array.isArray(server.fallbackUrls) ? server.fallbackUrls.slice(0, 4) : []);
@@ -502,7 +523,17 @@ const App = () => {
             username: server.mediaStats ? server.mediaStats.username || '' : '',
             password: server.mediaStats ? server.mediaStats.password || '' : ''
         });
+        setKeepAliveForm({
+            enabled: Boolean(keepAlive.enabled),
+            periodDays: keepAlive.enabled && keepAlive.periodDays ? String(keepAlive.periodDays) : '',
+            alertDays: keepAlive.enabled && keepAlive.alertDays ? String(keepAlive.alertDays) : ''
+        });
         setIsAddModalOpen(true);
+        if (focusKeepAlive) {
+            setTimeout(() => {
+                if (keepAliveSectionRef.current) keepAliveSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 80);
+        }
     };
 
     const handleSaveServer = async () => {
@@ -513,14 +544,24 @@ const App = () => {
         let finalUrl = buildServerUrlFromForm();
         if (finalUrl.endsWith('/')) finalUrl = finalUrl.slice(0, -1);
         const cleanFallbackUrls = normalizeFallbackUrlsForSave(finalUrl);
+        const keepAlivePeriodDays = Number(keepAliveForm.periodDays);
+        const keepAliveAlertDays = keepAliveForm.alertDays ? Number(keepAliveForm.alertDays) : Math.max(1, keepAlivePeriodDays - 3);
+        if (keepAliveForm.enabled) {
+            if (!mediaForm.enabled) throw new Error('开启保号前请先启用媒体库资源统计并填写账号');
+            if (!Number.isInteger(keepAlivePeriodDays) || keepAlivePeriodDays <= 1) throw new Error('活跃周期必须是大于 1 的正整数');
+            if (!Number.isInteger(keepAliveAlertDays) || keepAliveAlertDays <= 0) throw new Error('提前提醒天数必须是正整数');
+            if (keepAliveAlertDays >= keepAlivePeriodDays) throw new Error('提前提醒天数必须小于活跃周期');
+        }
 
         const buildMediaStats = (existing) => {
             const previousMedia = existing && existing.mediaStats ? existing.mediaStats : {};
             const credentialsChanged = previousMedia.username !== mediaForm.username.trim() || previousMedia.password !== mediaForm.password;
+            const previousKeepAlive = previousMedia.keepAlive || {};
             return {
                 enabled: mediaForm.enabled, username: mediaForm.enabled ? mediaForm.username.trim() : '', password: mediaForm.enabled ? mediaForm.password : '',
                 deviceId: previousMedia.deviceId || ('forward-' + Date.now().toString(36)),
                 accessToken: mediaForm.enabled && !credentialsChanged ? (previousMedia.accessToken || '') : '',
+                userId: mediaForm.enabled && !credentialsChanged ? (previousMedia.userId || '') : '',
                 lastCheck: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastCheck || 0) : 0,
                 lastError: '', counts: mediaForm.enabled && !credentialsChanged ? (previousMedia.counts || null) : null,
                 previousCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.previousCounts || null) : null,
@@ -528,7 +569,15 @@ const App = () => {
                 todayCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.todayCounts || null) : null,
                 yesterdayCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.yesterdayCounts || null) : null,
                 dailyDelta: mediaForm.enabled && !credentialsChanged ? (previousMedia.dailyDelta || null) : null,
-                dailyKey: mediaForm.enabled && !credentialsChanged ? (previousMedia.dailyKey || '') : ''
+                dailyKey: mediaForm.enabled && !credentialsChanged ? (previousMedia.dailyKey || '') : '',
+                keepAlive: {
+                    enabled: Boolean(keepAliveForm.enabled),
+                    periodDays: keepAliveForm.enabled ? keepAlivePeriodDays : 30,
+                    alertDays: keepAliveForm.enabled ? keepAliveAlertDays : 27,
+                    lastPlayedAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.lastPlayedAt || 0) : 0,
+                    lastCheckedAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.lastCheckedAt || 0) : 0,
+                    alertSentAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.alertSentAt || 0) : 0
+                }
             };
         };
 
@@ -858,6 +907,7 @@ const App = () => {
                             const iconImg = getDisplayIcon(s);
                             const isOnline = s.status === 'online';
                             const stats = getAvailabilityStats(s);
+                            const keepAliveButton = getKeepAliveButtonState(s);
 
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
@@ -966,6 +1016,7 @@ const App = () => {
                                         </div>
                                         <div className="mobile-card-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                             <button onClick={() => setShareModalTarget(s.id)} className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors">分享</button>
+                                            <button onClick={() => openEditServerModal(s, true)} className={"px-3 py-1.5 rounded-lg transition-colors " + keepAliveButton.className}>{keepAliveButton.text}</button>
                                             <button onClick={() => openEditServerModal(s)} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">编辑</button>
                                             <button onClick={async () => {
                                                 if(confirm('彻底删除该服务器?')) {
@@ -1247,6 +1298,30 @@ const App = () => {
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">Emby 密码</label>
                                             <input type="password" value={mediaForm.password} onChange={e=>setMediaForm({...mediaForm, password: e.target.value})} placeholder="••••••••" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 保号设置 */}
+                            <div ref={keepAliveSectionRef} className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                        <Icons.Clock className="w-4 h-4 text-orange-500" />保号设置
+                                    </div>
+                                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+                                        <input type="checkbox" checked={keepAliveForm.enabled} onChange={e=>setKeepAliveForm({...keepAliveForm, enabled: e.target.checked})} className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500" />
+                                    </label>
+                                </div>
+                                {keepAliveForm.enabled && (
+                                    <div className="grid grid-cols-2 gap-3 pt-2">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">活跃周期（天）</label>
+                                            <input type="text" inputMode="numeric" value={keepAliveForm.periodDays} onChange={e=>setKeepAliveForm({...keepAliveForm, periodDays: cleanPositiveIntInput(e.target.value)})} placeholder="例如：30" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">提前提醒（天）</label>
+                                            <input type="text" inputMode="numeric" value={keepAliveForm.alertDays} onChange={e=>setKeepAliveForm({...keepAliveForm, alertDays: cleanPositiveIntInput(e.target.value)})} placeholder="例如：27" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
                                         </div>
                                     </div>
                                 )}
