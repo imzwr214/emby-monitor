@@ -930,6 +930,8 @@ const App = () => {
                             const stats = getAvailabilityStats(s);
                             const keepAliveButton = getKeepAliveButtonState(s);
                             const lastPlayedText = formatLastPlayedText(s);
+                            const lastPlayedError = (s.mediaStats && s.mediaStats.lastPlayed && s.mediaStats.lastPlayed.lastError) || (s.mediaStats && s.mediaStats.lastError) || '';
+                            const lastPlayedTitle = lastPlayedText || lastPlayedError || '暂无上次观看记录';
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
                                 offline: { text: 'text-rose-700', bg: 'bg-rose-500/10', border: 'border-rose-200', dotClass: 'dot-offline', glowClass: 'glow-offline' },
@@ -1030,13 +1032,17 @@ const App = () => {
                                     )}
 
                                     {showLastPlayed && s.mediaStats && s.mediaStats.enabled && (
-                                        <div className="server-card-last-played mt-1 inline-flex max-w-full items-center rounded-lg bg-white/35 px-2 py-0.5 text-left relative z-10 text-[10px] leading-3 font-bold text-slate-400 truncate" title={lastPlayedText || (s.mediaStats.lastPlayed && s.mediaStats.lastPlayed.lastError) || '暂无上次观看记录'}>
-                                            {lastPlayedText || '上次观看 暂无记录'}
+                                        <div
+                                            className={"server-card-last-played mt-3 flex max-w-full items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-left relative z-10 text-[11px] leading-4 font-black shadow-sm " + (lastPlayedText ? "bg-sky-50/80 border-sky-100 text-sky-700" : "bg-amber-50/80 border-amber-100 text-amber-700")}
+                                            title={lastPlayedTitle}
+                                        >
+                                            <Icons.PlaySquare className="w-3.5 h-3.5 flex-shrink-0" />
+                                            <span className="truncate">{lastPlayedText || '上次观看 暂无记录'}</span>
                                         </div>
                                     )}
 
                                     {/* Footer */}
-                                    <div className="server-card-footer mt-5 flex justify-between items-center text-[10px] text-slate-400 font-bold relative z-10">
+                                    <div className="server-card-footer mt-3 flex justify-between items-center text-[10px] text-slate-400 font-bold relative z-10">
                                         <div className="flex items-center gap-1.5 bg-white/60 px-2 py-1 rounded-full border border-white">
                                             <Icons.Clock className="w-3 h-3" />
                                             检测: {new Date(s.lastCheck).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
