@@ -36,14 +36,26 @@
 
   async verifyWithLoginState(server) {
       const media = server.mediaStats || {};
-      if (!media.enabled || !media.accessToken) return null;
+      if (!media.enabled) return null;
+      const start = Date.now();
+      if (!media.accessToken && !media.username) return null;
       try {
-          const start = Date.now();
-          await this.fetchEmbyMediaCounts(server, media.accessToken);
+          if (media.accessToken) await this.fetchEmbyMediaCounts(server, media.accessToken);
+          else await this.loginEmbyForMedia(server);
           return { ok: true, latency: Date.now() - start };
       } catch(e) {
-          if (String(e.message || '').includes('Token 失效')) return null;
-          return { ok: false, latency: 0 };
+          const message = String(e.message || '');
+          if (message.includes('Token 失效') && media.username) {
+              try {
+                  await this.loginEmbyForMedia(server);
+                  return { ok: true, latency: Date.now() - start };
+              } catch(loginError) {
+                  const loginMessage = String(loginError.message || '');
+                  if (loginMessage.includes('账号或密码错误') || loginMessage.includes('HTTP 401')) return { ok: true, latency: Date.now() - start };
+              }
+          }
+          if (message.includes('账号或密码错误') || message.includes('HTTP 401')) return { ok: true, latency: Date.now() - start };
+          return { ok: false, latency: Date.now() - start };
       }
   },
 
@@ -277,6 +289,13 @@
               const result = await this.probeEmbyServerWithFallbacks(s);
               isAlive = result.ok; finalLatency = result.latency; addressProbeResults = result.addressProbeResults || [];
           } catch(e) { isAlive = false; }
+          if (!isAlive) {
+              const loginState = await this.verifyWithLoginState(s);
+              if (loginState && loginState.ok) {
+                  isAlive = true;
+                  finalLatency = Number(loginState.latency) || finalLatency;
+              }
+          }
           s.addressProbeResults = addressProbeResults;
 
           if (isAlive) {
