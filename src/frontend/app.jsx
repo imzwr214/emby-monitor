@@ -23,6 +23,7 @@ const App = () => {
     });
     const [isPrivacyMenuOpen, setIsPrivacyMenuOpen] = useState(false);
     const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
+    const [showLastPlayed, setShowLastPlayed] = useState(() => localStorage.getItem('show_last_played') !== '0');
 
     // 搜索与过滤
     const [searchQuery, setSearchQuery] = useState('');
@@ -140,6 +141,7 @@ const App = () => {
     }, [isPrivacyMenuOpen]);
     useEffect(() => { localStorage.setItem('availability_range', availabilityRange); }, [availabilityRange]);
     useEffect(() => { localStorage.setItem('availability_sort', availabilitySort); }, [availabilitySort]);
+    useEffect(() => { localStorage.setItem('show_last_played', showLastPlayed ? '1' : '0'); }, [showLastPlayed]);
 
     const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
         const serverById = new Map(servers.map(s => [s.id, s]));
@@ -363,6 +365,17 @@ const App = () => {
         if (remainingDays < 0) return { text: '!逾期', className: 'bg-rose-50 text-rose-600 hover:bg-rose-100' };
         if (remainingDays <= 3) return { text: '!' + remainingDays + '天', className: 'bg-orange-50 text-orange-600 hover:bg-orange-100' };
         return { text: remainingDays + '天', className: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' };
+    };
+    const getLastPlayedAt = (server) => {
+        const media = server && server.mediaStats ? server.mediaStats : null;
+        const keepAlive = media && media.keepAlive ? media.keepAlive : null;
+        return Number(media && media.lastPlayedAt) || Number(keepAlive && keepAlive.lastPlayedAt) || 0;
+    };
+    const formatLastPlayed = (server) => {
+        const lastPlayedAt = getLastPlayedAt(server);
+        if (!server || !server.mediaStats || !server.mediaStats.enabled) return '未启用媒体库';
+        if (!lastPlayedAt) return '暂无记录';
+        return new Date(lastPlayedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
     };
 
     const stripProtocol = (value) => {
@@ -876,6 +889,16 @@ const App = () => {
                             <span>排序</span>
                             {availabilitySortArrow && <span className="text-sm leading-none">{availabilitySortArrow}</span>}
                         </button>
+                        {activeTab === 'cards' && (
+                        <button
+                            onClick={() => setShowLastPlayed(!showLastPlayed)}
+                            className={"mobile-last-played-toggle hidden sm:flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold transition-all items-center gap-1.5 " + (showLastPlayed ? 'bg-white/80 text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
+                            title="显示或隐藏卡片上的上次观看时间"
+                        >
+                            {showLastPlayed ? <Icons.Eye className="w-3.5 h-3.5" /> : <Icons.EyeOff className="w-3.5 h-3.5" />}
+                            <span>上次观看</span>
+                        </button>
+                        )}
                         </div>
                         {/* 搜索框 */}
                         <div className="mobile-search relative w-full sm:w-64">
@@ -908,6 +931,7 @@ const App = () => {
                             const isOnline = s.status === 'online';
                             const stats = getAvailabilityStats(s);
                             const keepAliveButton = getKeepAliveButtonState(s);
+                            const lastPlayedText = formatLastPlayed(s);
 
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
@@ -1008,6 +1032,14 @@ const App = () => {
                                         </div>
                                     )}
 
+                                    {showLastPlayed && (
+                                        <div className="relative z-10 mt-3 flex items-center gap-1.5 text-[10px] text-slate-400 font-bold">
+                                            <Icons.PlaySquare className="w-3.5 h-3.5 text-slate-400" />
+                                            <span>上次观看</span>
+                                            <span className="min-w-0 truncate text-slate-500 tabular-nums">{lastPlayedText}</span>
+                                        </div>
+                                    )}
+
                                     {/* Footer */}
                                     <div className="server-card-footer mt-5 flex justify-between items-center text-[10px] text-slate-400 font-bold relative z-10">
                                         <div className="flex items-center gap-1.5 bg-white/60 px-2 py-1 rounded-full border border-white">
@@ -1105,13 +1137,16 @@ const App = () => {
                         <button onClick={() => setIsSettingsOpen(false)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors">
                             <Icons.X className="w-4 h-4" />
                         </button>
-                        <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
-                            <Icons.Settings className="w-6 h-6 text-blue-500" />系统设置
-                        </h2>
+                        <div className="flex-none">
+                            <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
+                                <Icons.Settings className="w-6 h-6 text-blue-500" />系统设置
+                            </h2>
+                        </div>
 
-                        <div className="mobile-form-body space-y-4">
-                            {/* 程序更新 */}
-                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
+                        <div className="mobile-form-body">
+                            <div className="space-y-4">
+                                {/* 程序更新 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
                                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2 mb-1 text-slate-700 font-bold"><Icons.DownloadCloud className="w-4 h-4 text-blue-500" />程序更新</div>
@@ -1137,9 +1172,6 @@ const App = () => {
                                                 ))}
                                             </div>
                                         )}
-                                        <div className="mt-4 border-t border-slate-200/70 pt-3 text-[10px] font-bold text-slate-400 leading-relaxed">
-                                            更新建议：公开页头像展示、大陆 IP 限制和公开链接设置已完善，建议尽快更新。
-                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 md:flex gap-2 md:flex-shrink-0">
                                         <button onClick={() => checkForUpdate(true)} disabled={isCheckingUpdate || isApplyingUpdate} className="px-3 sm:px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold transition-all shadow-sm whitespace-nowrap">
@@ -1150,10 +1182,10 @@ const App = () => {
                                         </button>
                                     </div>
                                 </div>
-                            </div>
+                                </div>
 
-                            {/* Telegram 配置 */}
-                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
+                                {/* Telegram 配置 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2 text-slate-700 font-bold">
                                         <Icons.MessageSquare className="w-4 h-4 text-emerald-500" />通知配置 (Telegram)
@@ -1176,16 +1208,17 @@ const App = () => {
                                         <button onClick={handleSaveTelegram} className="w-full mt-2 py-2.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold text-sm rounded-xl transition-colors border border-emerald-200">应用 TG 配置</button>
                                     </div>
                                 )}
-                            </div>
+                                </div>
 
-                            {/* 图标库 */}
-                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
+                                {/* 图标库 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
                                 <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
                                     <Icons.ImageIcon className="w-4 h-4 text-purple-500" />图标库 (JSON)
                                 </div>
                                 <div className="flex gap-2">
                                     <input type="text" value={iconInput} onChange={e => setIconInput(e.target.value)} placeholder="https://example.com/icons.json" className="flex-1 glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
                                     <button onClick={handleSyncIcons} className="px-4 py-2.5 bg-blue-50 text-blue-600 font-bold text-sm rounded-xl hover:bg-blue-100 transition-colors border border-blue-200">拉取</button>
+                                </div>
                                 </div>
                             </div>
                         </div>
@@ -1201,15 +1234,17 @@ const App = () => {
                         <button onClick={() => setIsAddModalOpen(false)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors">
                             <Icons.X className="w-4 h-4" />
                         </button>
+                        <div className="flex-none">
+                            <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
+                                <Icons.Server className="w-6 h-6 text-emerald-500" />
+                                {editingServerId ? '编辑服务器' : '部署新服务器'}
+                            </h2>
+                        </div>
 
-                        <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
-                            <Icons.Server className="w-6 h-6 text-emerald-500" />
-                            {editingServerId ? '编辑服务器' : '部署新服务器'}
-                        </h2>
-
-                        <div className="mobile-form-body space-y-4">
-                            {/* 快捷导入 */}
-                            <div className="bg-white/60 p-4 rounded-3xl border border-white shadow-sm">
+                        <div className="mobile-form-body">
+                            <div className="space-y-4">
+                                {/* 快捷导入 */}
+                                <div className="bg-white/60 p-4 rounded-3xl border border-white shadow-sm">
                                 <div className="flex items-center justify-between gap-3 mb-2">
                                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 block">快速粘贴解析</label>
                                     <button
@@ -1227,10 +1262,10 @@ const App = () => {
                                     value={quickImportText}
                                     onChange={e=>setQuickImportText(e.target.value)}
                                 />
-                            </div>
+                                </div>
 
-                            {/* 基础配置 */}
-                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
+                                {/* 基础配置 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
                                 <div className="flex items-center gap-2 mb-2 text-slate-700 font-bold">
                                     <Icons.Link className="w-4 h-4 text-blue-500" />基础路由信息
                                 </div>
@@ -1246,10 +1281,10 @@ const App = () => {
                                         <input type="text" value={addForm.port} onChange={e=>setAddForm({...addForm, port: cleanPortInput(e.target.value)})} placeholder="443" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm font-mono text-center outline-none" />
                                     </div>
                                 </div>
-                            </div>
+                                </div>
 
-                            {/* 备用地址 */}
-                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
+                                {/* 备用地址 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-3">
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-center gap-2 text-slate-700 font-bold">
                                         <Icons.Link className="w-4 h-4 text-emerald-500" />备用地址
@@ -1277,15 +1312,15 @@ const App = () => {
                                         ))}
                                     </div>
                                 )}
-                            </div>
+                                </div>
 
-                            {/* 媒体库配置 */}
-                            <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
-                                <div className="flex items-center justify-between">
+                                {/* 媒体库配置 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex items-center gap-2 text-slate-700 font-bold">
                                         <Icons.ShieldCheck className="w-4 h-4 text-purple-500" />启用媒体库资源统计
                                     </div>
-                                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+                                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer self-start sm:self-auto">
                                         <input type="checkbox" checked={mediaForm.enabled} onChange={e=>setMediaForm({...mediaForm, enabled: e.target.checked})} className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500" />
                                     </label>
                                 </div>
@@ -1301,15 +1336,15 @@ const App = () => {
                                         </div>
                                     </div>
                                 )}
-                            </div>
+                                </div>
 
-                            {/* 保号设置 */}
-                            <div ref={keepAliveSectionRef} className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
-                                <div className="flex items-center justify-between">
+                                {/* 保号设置 */}
+                                <div ref={keepAliveSectionRef} className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex items-center gap-2 text-slate-700 font-bold">
                                         <Icons.Clock className="w-4 h-4 text-orange-500" />保号设置
                                     </div>
-                                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+                                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer self-start sm:self-auto">
                                         <input type="checkbox" checked={keepAliveForm.enabled} onChange={e=>setKeepAliveForm({...keepAliveForm, enabled: e.target.checked})} className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500" />
                                     </label>
                                 </div>
@@ -1325,6 +1360,7 @@ const App = () => {
                                         </div>
                                     </div>
                                 )}
+                                </div>
                             </div>
                         </div>
 

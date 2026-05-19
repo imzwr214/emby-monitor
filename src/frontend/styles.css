@@ -792,6 +792,9 @@ body {
         border-radius: 28px 28px 0 0;
         padding: 22px 18px 18px;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
     }
     .mobile-sheet h2 {
         font-size: 20px;
@@ -799,7 +802,6 @@ body {
         padding-right: 34px;
     }
     .mobile-sheet .space-y-4 {
-        max-height: calc(100vh - 140px);
         padding-right: 2px;
     }
     .mobile-sheet textarea {
@@ -812,12 +814,15 @@ body {
     .mobile-form-sheet {
         display: flex;
         flex-direction: column;
+        height: calc(100vh - 18px);
+        min-height: 0;
     }
     .mobile-form-body {
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
         padding-right: 2px;
+        -webkit-overflow-scrolling: touch;
     }
     .mobile-form-footer {
         flex: none;
@@ -833,6 +838,38 @@ body {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 10px;
         max-height: calc(100vh - 180px);
+    }
+}
+
+@media (min-width: 641px) {
+    .mobile-modal {
+        align-items: center;
+        padding: 16px;
+    }
+    .mobile-sheet {
+        max-height: calc(100vh - 32px);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+    .mobile-form-sheet {
+        height: auto;
+        max-height: calc(100vh - 32px);
+    }
+    .mobile-form-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 4px;
+        -webkit-overflow-scrolling: touch;
+    }
+    .mobile-form-footer {
+        flex: none;
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(226,232,240,0.8);
+        background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.42));
     }
 }
 ::-webkit-scrollbar { width: 6px; }

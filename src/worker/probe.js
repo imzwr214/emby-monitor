@@ -128,10 +128,14 @@
           }
           const dailyStats = this.buildDailyMediaStats(media, counts, now);
           const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
+          let lastPlayedAt = Number(media.lastPlayedAt) || 0;
+          try {
+              lastPlayedAt = await this.fetchEmbyLastPlayed(server, token, userId) || lastPlayedAt;
+          } catch(e) {}
           server.mediaStats = {
               ...media, accessToken: token, userId, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
-              lastCheck: counts.time, lastError: ''
+              lastCheck: counts.time, lastPlayedAt, lastPlayedCheckAt: now, lastError: ''
           };
       } catch(e) { server.mediaStats = { ...media, lastError: e.message || '媒体库统计失败' }; }
       return server;
@@ -199,7 +203,7 @@
                   alert = { message: this.buildKeepAliveMessage(server, nextKeepAlive, inactiveDays, effectiveLastPlayedAt), serverId: server.id, checkedAt: now };
               }
           }
-          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert, touched: true };
+          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayedAt: effectiveLastPlayedAt || Number(media.lastPlayedAt) || 0, lastPlayedCheckAt: now, keepAlive: nextKeepAlive } }, alert, touched: true };
       } catch(e) {
           return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert: null, touched: true };
       }
