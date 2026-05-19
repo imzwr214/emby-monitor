@@ -70,23 +70,40 @@
 
   async fetchEmbyLastPlayed(server, token, userId) {
       if (!userId) throw new Error('未获取到媒体库 UserId');
-      const query = '?Filters=IsPlayed&SortBy=DatePlayed&SortOrder=Descending&Limit=1&Recursive=true&Fields=UserData&api_key=' + encodeURIComponent(token);
       const bases = this.getEmbyApiBases(server);
       let lastError = '最后播放时间读取失败';
+      const queryParts = [
+          'Recursive=true',
+          'Limit=1',
+          'SortBy=DatePlayed',
+          'SortOrder=Descending',
+          'Filters=IsPlayed',
+          'EnableUserData=true',
+          'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'
+      ];
+      const queries = [
+          '/Users/' + encodeURIComponent(userId) + '/Items?' + queryParts.join('&') + '&api_key=' + encodeURIComponent(token),
+          '/Users/' + encodeURIComponent(userId) + '/Items/Latest?' + queryParts.join('&') + '&api_key=' + encodeURIComponent(token),
+          '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Recursive=true&Limit=1&SortBy=DatePlayed&SortOrder=Descending&EnableUserData=true&api_key=' + encodeURIComponent(token)
+      ];
       for (const base of bases) {
-          try {
-              const response = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items' + query, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
-              if (!response.ok) {
-                  const detail = await this.readShortResponse(response);
-                  lastError = response.status === 401 ? '媒体库 Token 失效' : '最后播放时间读取失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
-                  continue;
+          for (const path of queries) {
+              try {
+                  const response = await this.fetchWithTimeout(base + path, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
+                  if (!response.ok) {
+                      const detail = await this.readShortResponse(response);
+                      lastError = response.status === 401 ? '媒体库 Token 失效' : '最后播放时间读取失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
+                      continue;
+                  }
+                  const data = await response.json();
+                  const item = Array.isArray(data.Items) && data.Items.length ? data.Items[0] : null;
+                  const played = item && item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : (item && item.DatePlayed ? item.DatePlayed : '');
+                  const playedAt = played ? Date.parse(played) : 0;
+                  if (Number.isFinite(playedAt) && playedAt > 0) return playedAt;
+              } catch(e) {
+                  lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
               }
-              const data = await response.json();
-              const item = Array.isArray(data.Items) && data.Items.length ? data.Items[0] : null;
-              const played = item && item.UserData ? item.UserData.LastPlayedDate : '';
-              const playedAt = played ? Date.parse(played) : 0;
-              return Number.isFinite(playedAt) && playedAt > 0 ? playedAt : 0;
-          } catch(e) { lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败'); }
+          }
       }
       throw new Error(lastError);
   },
