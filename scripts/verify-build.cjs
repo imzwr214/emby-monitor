@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -12,6 +13,15 @@ const requireIncludes = (text, needle, label = needle) => {
   if (!text.includes(needle)) fail(`missing ${label}`);
 };
 
+const verifyModuleSyntax = (sourceText) => {
+  const syntaxOnlySource = sourceText.replace(/\bexport\s+default\s*\{/, 'const __worker = {');
+  try {
+    new vm.Script(syntaxOnlySource, { filename: 'emby.js' });
+  } catch (error) {
+    fail(`emby.js syntax check failed: ${error.message}`);
+  }
+};
+
 const source = read('emby.js');
 const wrangler = read('wrangler.toml');
 const meta = JSON.parse(read('src/app-meta.json'));
@@ -20,6 +30,7 @@ const metaNotes = Array.isArray(meta.updateNotes) ? meta.updateNotes.map((item) 
 
 if (source.length < 10000) fail('emby.js is unexpectedly small');
 if (source.length > 5 * 1024 * 1024) fail('emby.js is unexpectedly large');
+verifyModuleSyntax(source);
 if (!metaVersion) fail('src/app-meta.json missing version');
 if (metaNotes.length < 1) fail('src/app-meta.json updateNotes must contain at least one note');
 
