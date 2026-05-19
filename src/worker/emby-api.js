@@ -72,23 +72,10 @@
       if (!userId) throw new Error('未获取到媒体库 UserId');
       const bases = this.getEmbyApiBases(server);
       let lastError = '最后播放时间读取失败';
-      const queryParts = [
-          'Recursive=true',
-          'Limit=5',
-          'SortBy=DatePlayed',
-          'SortOrder=Descending',
-          'IsPlayed=true',
-          'EnableUserData=true',
-          'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'
-      ];
-      const queries = [
-          '/Users/' + encodeURIComponent(userId) + '/Items?' + queryParts.join('&') + '&api_key=' + encodeURIComponent(token),
-          '/Users/' + encodeURIComponent(userId) + '/Items/Latest?Limit=5&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token),
-          '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Recursive=true&Limit=5&SortBy=DatePlayed&SortOrder=Descending&IsPlayed=true&EnableUserData=true&api_key=' + encodeURIComponent(token)
-      ];
       const extractItems = (data) => {
+          if (!data) return [];
           if (Array.isArray(data)) return data;
-          if (data && Array.isArray(data.Items)) return data.Items;
+          if (Array.isArray(data.Items)) return data.Items;
           return [];
       };
       const extractPlayedAt = (item) => {
@@ -98,16 +85,30 @@
           return Number.isFinite(playedAt) && playedAt > 0 ? playedAt : 0;
       };
       for (const base of bases) {
-          for (const path of queries) {
+          const pageLimit = 50;
+          const maxScan = 300;
+          for (let startIndex = 0; startIndex < maxScan; startIndex += pageLimit) {
               try {
-                  const response = await this.fetchWithTimeout(base + path, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
+                  const query = [
+                      'Recursive=true',
+                      'StartIndex=' + startIndex,
+                      'Limit=' + pageLimit,
+                      'SortBy=DatePlayed',
+                      'SortOrder=Descending',
+                      'IsPlayed=true',
+                      'EnableUserData=true',
+                      'Fields=UserData,DatePlayed'
+                  ].join('&');
+                  const response = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items?' + query + '&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
                   if (!response.ok) {
                       const detail = await this.readShortResponse(response);
                       lastError = response.status === 401 ? '媒体库 Token 失效' : '最后播放时间读取失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
-                      continue;
+                      break;
                   }
                   const data = await response.json();
                   const items = extractItems(data);
+                  const totalCount = Number(data && data.TotalRecordCount);
+                  const hasTotalCount = Number.isFinite(totalCount) && totalCount > 0;
                   for (const item of items) {
                       const playedAt = extractPlayedAt(item);
                       if (playedAt) return playedAt;
@@ -120,8 +121,11 @@
                           }
                       }
                   }
+                  if (items.length < pageLimit) break;
+                  if (hasTotalCount && startIndex + pageLimit >= totalCount) break;
               } catch(e) {
                   lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
+                  break;
               }
           }
       }
