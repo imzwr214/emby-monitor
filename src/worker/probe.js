@@ -106,7 +106,8 @@
       const now = Date.now();
       const todayKey = this.getShanghaiDayKey(now);
       const needsDailySnapshot = media.dailyKey !== todayKey || !media.todayCounts || !media.dailyDelta;
-      if (!force && media.lastCheck && !needsDailySnapshot) return server;
+      const needsLastPlayedBackfill = !Number(media.lastPlayedAt) || !Number(media.lastPlayedCheckAt);
+      if (!force && media.lastCheck && !needsDailySnapshot && !needsLastPlayedBackfill) return server;
       server.mediaStatsTouched = true;
 
       try {
