@@ -118,8 +118,18 @@
               alertSentAt: Number.isFinite(Number(source.alertSentAt)) ? Math.max(0, Number(source.alertSentAt)) : 0
           };
       };
+      const normalizeLastPlayed = (value) => {
+          const source = value && typeof value === 'object' ? value : {};
+          const item = source.item && typeof source.item === 'object' ? source.item : null;
+          return {
+              lastPlayedAt: Number.isFinite(Number(source.lastPlayedAt)) ? Math.max(0, Number(source.lastPlayedAt)) : 0,
+              item: item ? { id: String(item.id || '').slice(0, 120), name: String(item.name || '').slice(0, 180), type: String(item.type || '').slice(0, 80) } : null,
+              checkedAt: Number.isFinite(Number(source.checkedAt)) ? Math.max(0, Number(source.checkedAt)) : 0,
+              lastError: String(source.lastError || '').slice(0, 160)
+          };
+      };
       if (!mediaStats || typeof mediaStats !== 'object') {
-          return { enabled: false, username: '', password: '', accessToken: '', userId: '', deviceId: '', lastCheck: 0, lastError: '', lastPlayedAt: 0, lastPlayedCheckAt: 0, counts: null, previousCounts: null, delta24h: null, todayCounts: null, yesterdayCounts: null, dailyDelta: null, dailyKey: '', keepAlive: normalizeKeepAlive(null) };
+          return { enabled: false, username: '', password: '', accessToken: '', userId: '', deviceId: '', lastCheck: 0, lastError: '', counts: null, previousCounts: null, delta24h: null, todayCounts: null, yesterdayCounts: null, dailyDelta: null, dailyKey: '', keepAlive: normalizeKeepAlive(null), lastPlayed: normalizeLastPlayed(null) };
       }
       const cleanCounts = (counts) => {
           if (!counts || typeof counts !== 'object') return null;
@@ -132,9 +142,10 @@
       const clean = {
           enabled: Boolean(mediaStats.enabled), username: String(mediaStats.username || '').slice(0, 120), password: String(mediaStats.password || ''), accessToken: String(mediaStats.accessToken || ''), userId: String(mediaStats.userId || ''),
           deviceId: String(mediaStats.deviceId || ('forward-' + Math.random().toString(36).slice(2))).slice(0, 120), lastCheck: Number.isFinite(Number(mediaStats.lastCheck)) ? Number(mediaStats.lastCheck) : 0,
-          lastError: String(mediaStats.lastError || '').slice(0, 160), lastPlayedAt: Number.isFinite(Number(mediaStats.lastPlayedAt)) ? Math.max(0, Number(mediaStats.lastPlayedAt)) : 0, lastPlayedCheckAt: Number.isFinite(Number(mediaStats.lastPlayedCheckAt)) ? Math.max(0, Number(mediaStats.lastPlayedCheckAt)) : 0, counts: cleanCounts(mediaStats.counts), previousCounts: cleanCounts(mediaStats.previousCounts), delta24h: cleanDeltaCounts(mediaStats.delta24h),
+          lastError: String(mediaStats.lastError || '').slice(0, 160), counts: cleanCounts(mediaStats.counts), previousCounts: cleanCounts(mediaStats.previousCounts), delta24h: cleanDeltaCounts(mediaStats.delta24h),
           todayCounts: cleanCounts(mediaStats.todayCounts), yesterdayCounts: cleanCounts(mediaStats.yesterdayCounts), dailyDelta: cleanDeltaCounts(mediaStats.dailyDelta), dailyKey: String(mediaStats.dailyKey || ''),
-          keepAlive: normalizeKeepAlive(mediaStats.keepAlive)
+          keepAlive: normalizeKeepAlive(mediaStats.keepAlive),
+          lastPlayed: normalizeLastPlayed(mediaStats.lastPlayed)
       };
       if (!clean.dailyDelta && clean.counts && clean.previousCounts) {
           clean.dailyDelta = { movie: clean.counts.movie - clean.previousCounts.movie, series: clean.counts.series - clean.previousCounts.series, episode: clean.counts.episode - clean.previousCounts.episode, time: clean.counts.time };

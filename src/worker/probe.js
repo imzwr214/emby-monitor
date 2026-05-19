@@ -106,9 +106,7 @@
       const now = Date.now();
       const todayKey = this.getShanghaiDayKey(now);
       const needsDailySnapshot = media.dailyKey !== todayKey || !media.todayCounts || !media.dailyDelta;
-      const lastPlayedCheckAt = Number(media.lastPlayedCheckAt) || 0;
-      const needsLastPlayedRefresh = !lastPlayedCheckAt || now - lastPlayedCheckAt >= 24 * 60 * 60 * 1000;
-      if (!force && media.lastCheck && !needsDailySnapshot && !needsLastPlayedRefresh) return server;
+      if (!force && media.lastCheck && !needsDailySnapshot) return server;
       server.mediaStatsTouched = true;
 
       try {
@@ -130,17 +128,47 @@
           }
           const dailyStats = this.buildDailyMediaStats(media, counts, now);
           const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
-          let lastPlayedAt = Number(media.lastPlayedAt) || 0;
-          try {
-              lastPlayedAt = Math.max(lastPlayedAt, await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: !lastPlayedAt }) || 0);
-          } catch(e) {}
           server.mediaStats = {
               ...media, accessToken: token, userId, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
-              lastCheck: counts.time, lastPlayedAt, lastPlayedCheckAt: now, lastError: ''
+              lastCheck: counts.time, lastError: ''
           };
       } catch(e) { server.mediaStats = { ...media, lastError: e.message || '媒体库统计失败' }; }
       return server;
+  },
+
+  shouldRefreshLastPlayed(media, now = Date.now()) {
+      if (!media || !media.enabled || !media.username) return false;
+      const lastPlayed = media.lastPlayed || {};
+      if (!Number(lastPlayed.checkedAt)) return true;
+      return this.getShanghaiDayKey(lastPlayed.checkedAt) !== this.getShanghaiDayKey(now);
+  },
+
+  async refreshLastPlayedIfNeeded(server, force = false, now = Date.now()) {
+      const media = server.mediaStats || {};
+      if (!media.enabled || !media.username) return { server, touched: false };
+      if (!force && !this.shouldRefreshLastPlayed(media, now)) return { server, touched: false };
+      const previousLastPlayed = media.lastPlayed || {};
+      let token = media.accessToken || '';
+      let userId = media.userId || '';
+      try {
+          const login = await this.loginEmbyForMedia(server);
+          token = login.accessToken;
+          userId = login.userId || userId;
+          const result = await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: true, includeItem: true });
+          const lastPlayed = {
+              lastPlayedAt: Number(result.lastPlayedAt) || 0,
+              item: result.item || null,
+              checkedAt: now,
+              lastError: ''
+          };
+          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed } }, touched: true };
+      } catch(e) {
+          return {
+              server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed: { ...previousLastPlayed, lastError: e.message || '上次观看读取失败' } } },
+              touched: true
+          };
+      }
   },
 
   getKeepAliveState(server, now = Date.now()) {
@@ -205,7 +233,7 @@
                   alert = { message: this.buildKeepAliveMessage(server, nextKeepAlive, inactiveDays, effectiveLastPlayedAt), serverId: server.id, checkedAt: now };
               }
           }
-          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayedAt: effectiveLastPlayedAt || Number(media.lastPlayedAt) || 0, lastPlayedCheckAt: now, keepAlive: nextKeepAlive } }, alert, touched: true };
+          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert, touched: true };
       } catch(e) {
           return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert: null, touched: true };
       }
@@ -226,7 +254,7 @@
           const checkedAt = Date.now();
 
           const probeTargets = this.getProbeTargets(s);
-          const needsMediaRefresh = forceMedia || !s.mediaStats || !Number(s.mediaStats.lastCheck) || !Number(s.mediaStats.lastPlayedAt);
+          const needsMediaRefresh = forceMedia || !s.mediaStats || !Number(s.mediaStats.lastCheck);
 
           if (!probeTargets.length) {
               s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
@@ -235,6 +263,9 @@
               s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
               s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
               await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
+              const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, forceMedia || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
+              s = lastPlayedResult.server;
+              s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
               s.previousStatus = previousStatus; return s;
           }
 
@@ -258,6 +289,9 @@
           s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
           s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
           await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
+          const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, forceMedia || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
+          s = lastPlayedResult.server;
+          s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
           s.previousStatus = previousStatus; return s;
       });
 

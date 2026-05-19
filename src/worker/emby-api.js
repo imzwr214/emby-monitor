@@ -43,7 +43,7 @@
                   continue;
               }
               const data = await response.json();
-              if (data.AccessToken) return { accessToken: data.AccessToken, userId: data.User && data.User.Id ? String(data.User.Id) : '' };
+              if (data.AccessToken) return { accessToken: data.AccessToken, userId: data.User && data.User.Id ? String(data.User.Id) : '', base };
               lastError = '未获取到媒体库 Token';
           } catch(e) { lastError = e.name === 'AbortError' ? '媒体库登录超时' : (e.message || '媒体库登录失败'); }
       }
@@ -73,6 +73,7 @@
       const bases = this.getEmbyApiBases(server);
       let lastError = '最后播放时间读取失败';
       const deepScan = Boolean(options.deepScan);
+      const includeItem = Boolean(options.includeItem);
       const extractItems = (data) => {
           if (!data) return [];
           if (Array.isArray(data)) return data;
@@ -95,8 +96,8 @@
           {
               path: '/Items/Latest',
               variants: [
-                  ['Limit=10', 'StartIndex=0', 'IsPlayed=true', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
-                  ['Limit=10', 'StartIndex=0', 'Filters=IsPlayed', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video']
+                  ['IsPlayed=true', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
+                  ['Filters=IsPlayed', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video']
               ]
           }
       ];
@@ -104,19 +105,20 @@
           {
               path: '/Items',
               variants: [
-                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'IsPlayed=true'],
-                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'Filters=IsPlayed'],
-                  ['SortBy=DatePlayed', 'SortOrder=Descending'],
-                  ['SortBy=DateLastMediaAdded', 'SortOrder=Descending']
+                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'IsPlayed=true', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
+                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'Filters=IsPlayed', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
+                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
+                  ['SortBy=DateLastMediaAdded', 'SortOrder=Descending', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video']
               ]
           }
       ];
       let latestPlayedAt = 0;
+      let latestItem = null;
       for (const base of bases) {
           const plans = deepScan ? [...quickQueryPlans, ...deepQueryPlans] : quickQueryPlans;
           for (const plan of plans) {
               const pageLimit = plan.path === '/Items/Latest' ? 10 : 50;
-              const maxScan = plan.path === '/Items/Latest' ? 30 : 300;
+              const maxScan = plan.path === '/Items/Latest' ? 10 : 50;
               for (const variant of plan.variants) {
                   for (let startIndex = 0; startIndex < maxScan; startIndex += pageLimit) {
                       try {
@@ -138,14 +140,22 @@
                           const hasTotalCount = Number.isFinite(totalCount) && totalCount > 0;
                           for (const item of items) {
                               const playedAt = extractPlayedAt(item);
-                              if (playedAt > latestPlayedAt) latestPlayedAt = playedAt;
+                              if (playedAt > latestPlayedAt) {
+                                  latestPlayedAt = playedAt;
+                                  latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
+                              }
                               if (!playedAt && item && item.Id) {
-                                  const detailResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(item.Id) + '?EnableUserData=true&Fields=UserData&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
-                                  if (detailResponse.ok) {
-                                      const detail = await detailResponse.json();
-                                      const detailPlayedAt = extractPlayedAt(detail);
-                                      if (detailPlayedAt > latestPlayedAt) latestPlayedAt = detailPlayedAt;
-                                  }
+                                  try {
+                                      const detailResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(item.Id) + '?EnableUserData=true&Fields=UserData,DatePlayed&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 5000);
+                                      if (detailResponse.ok) {
+                                          const detail = await detailResponse.json();
+                                          const detailPlayedAt = extractPlayedAt(detail);
+                                          if (detailPlayedAt > latestPlayedAt) {
+                                              latestPlayedAt = detailPlayedAt;
+                                              latestItem = { id: detail.Id || item.Id || '', name: detail.Name || item.Name || '', type: detail.Type || item.Type || '' };
+                                          }
+                                      }
+                                  } catch(e) {}
                               }
                           }
                           if (items.length < pageLimit) break;
@@ -158,6 +168,6 @@
               }
           }
       }
-      if (latestPlayedAt) return latestPlayedAt;
+      if (latestPlayedAt) return includeItem ? { lastPlayedAt: latestPlayedAt, item: latestItem } : latestPlayedAt;
       throw new Error(lastError);
   },

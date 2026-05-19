@@ -21,9 +21,9 @@ const App = () => {
         if (['none', 'url', 'all'].includes(savedMode)) return savedMode;
         return localStorage.getItem('hide_server_meta') === '1' ? 'all' : 'none';
     });
+    const [showLastPlayed, setShowLastPlayed] = useState(() => localStorage.getItem('show_last_played') !== '0');
     const [isPrivacyMenuOpen, setIsPrivacyMenuOpen] = useState(false);
     const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
-    const [showLastPlayed, setShowLastPlayed] = useState(() => localStorage.getItem('show_last_played') !== '0');
 
     // 搜索与过滤
     const [searchQuery, setSearchQuery] = useState('');
@@ -115,6 +115,7 @@ const App = () => {
         localStorage.setItem('privacy_mode', privacyMode);
         localStorage.setItem('hide_server_meta', privacyMode === 'all' ? '1' : '0');
     }, [privacyMode]);
+    useEffect(() => { localStorage.setItem('show_last_played', showLastPlayed ? '1' : '0'); }, [showLastPlayed]);
     useEffect(() => {
         if (!toastMessage) return;
         const timer = setTimeout(() => setToastMessage(''), 1800);
@@ -141,7 +142,6 @@ const App = () => {
     }, [isPrivacyMenuOpen]);
     useEffect(() => { localStorage.setItem('availability_range', availabilityRange); }, [availabilityRange]);
     useEffect(() => { localStorage.setItem('availability_sort', availabilitySort); }, [availabilitySort]);
-    useEffect(() => { localStorage.setItem('show_last_played', showLastPlayed ? '1' : '0'); }, [showLastPlayed]);
 
     const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
         const serverById = new Map(servers.map(s => [s.id, s]));
@@ -239,6 +239,19 @@ const App = () => {
     const formatShareExpires = (value) => {
         const time = Number(value) || 0;
         return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '永久有效';
+    };
+    const formatLastPlayedText = (server) => {
+        const lastPlayed = server && server.mediaStats ? server.mediaStats.lastPlayed : null;
+        const lastPlayedAt = Number(lastPlayed && lastPlayed.lastPlayedAt) || 0;
+        if (!lastPlayedAt) return '';
+        const playedText = new Date(lastPlayedAt).toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        return '上次观看 ' + playedText;
     };
     const copyText = async (text, label = '内容') => {
         try {
@@ -366,18 +379,6 @@ const App = () => {
         if (remainingDays <= 3) return { text: '!' + remainingDays + '天', className: 'bg-orange-50 text-orange-600 hover:bg-orange-100' };
         return { text: remainingDays + '天', className: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' };
     };
-    const getLastPlayedAt = (server) => {
-        const media = server && server.mediaStats ? server.mediaStats : null;
-        const keepAlive = media && media.keepAlive ? media.keepAlive : null;
-        return Number(keepAlive && keepAlive.lastPlayedAt) || Number(media && media.lastPlayedAt) || 0;
-    };
-    const formatLastPlayed = (server) => {
-        const lastPlayedAt = getLastPlayedAt(server);
-        if (!server || !server.mediaStats || !server.mediaStats.enabled) return '未启用媒体库';
-        if (!lastPlayedAt) return '暂无记录';
-        return new Date(lastPlayedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-    };
-
     const stripProtocol = (value) => {
         const text = String(value || '');
         const lower = text.toLowerCase();
@@ -576,8 +577,6 @@ const App = () => {
                 accessToken: mediaForm.enabled && !credentialsChanged ? (previousMedia.accessToken || '') : '',
                 userId: mediaForm.enabled && !credentialsChanged ? (previousMedia.userId || '') : '',
                 lastCheck: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastCheck || 0) : 0,
-                lastPlayedAt: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayedAt || (previousKeepAlive.lastPlayedAt || 0)) : 0,
-                lastPlayedCheckAt: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayedCheckAt || 0) : 0,
                 lastError: '', counts: mediaForm.enabled && !credentialsChanged ? (previousMedia.counts || null) : null,
                 previousCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.previousCounts || null) : null,
                 delta24h: mediaForm.enabled && !credentialsChanged ? (previousMedia.delta24h || null) : null,
@@ -797,6 +796,13 @@ const App = () => {
                                 )}
                             </div>
                             <button
+                                onClick={() => setShowLastPlayed(!showLastPlayed)}
+                                title={showLastPlayed ? '关闭上次观看' : '显示上次观看'}
+                                className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (showLastPlayed ? "bg-white/70 text-blue-600 hover:bg-white" : "bg-slate-200 text-slate-500 shadow-inner")}
+                            >
+                                {showLastPlayed ? <Icons.Clock className="w-5 h-5" /> : <Icons.ClockOff className="w-5 h-5" />}
+                            </button>
+                            <button
                                 onClick={() => setIsSettingsOpen(true)}
                                 title="系统设置"
                                 className="relative w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
@@ -891,16 +897,6 @@ const App = () => {
                             <span>排序</span>
                             {availabilitySortArrow && <span className="text-sm leading-none">{availabilitySortArrow}</span>}
                         </button>
-                        {activeTab === 'cards' && (
-                        <button
-                            onClick={() => setShowLastPlayed(!showLastPlayed)}
-                            className={"mobile-last-played-toggle flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold transition-all items-center justify-center gap-1.5 " + (showLastPlayed ? 'bg-white/80 text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
-                            title="显示或隐藏卡片上的上次观看时间"
-                        >
-                            {showLastPlayed ? <Icons.Eye className="w-3.5 h-3.5" /> : <Icons.EyeOff className="w-3.5 h-3.5" />}
-                            <span>上次观看</span>
-                        </button>
-                        )}
                         </div>
                         {/* 搜索框 */}
                         <div className="mobile-search relative w-full sm:w-64">
@@ -933,8 +929,7 @@ const App = () => {
                             const isOnline = s.status === 'online';
                             const stats = getAvailabilityStats(s);
                             const keepAliveButton = getKeepAliveButtonState(s);
-                            const lastPlayedText = formatLastPlayed(s);
-
+                            const lastPlayedText = formatLastPlayedText(s);
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
                                 offline: { text: 'text-rose-700', bg: 'bg-rose-500/10', border: 'border-rose-200', dotClass: 'dot-offline', glowClass: 'glow-offline' },
@@ -1034,11 +1029,9 @@ const App = () => {
                                         </div>
                                     )}
 
-                                    {showLastPlayed && (
-                                        <div className="relative z-10 mt-3 flex items-center gap-1.5 text-[10px] text-slate-400 font-bold">
-                                            <Icons.PlaySquare className="w-3.5 h-3.5 text-slate-400" />
-                                            <span>上次观看</span>
-                                            <span className="min-w-0 truncate text-slate-500 tabular-nums">{lastPlayedText}</span>
+                                    {showLastPlayed && s.mediaStats && s.mediaStats.enabled && (
+                                        <div className="server-card-last-played mt-1 inline-flex max-w-full items-center rounded-lg bg-white/35 px-2 py-0.5 text-left relative z-10 text-[10px] leading-3 font-bold text-slate-400 truncate" title={lastPlayedText || (s.mediaStats.lastPlayed && s.mediaStats.lastPlayed.lastError) || '暂无上次观看记录'}>
+                                            {lastPlayedText || '上次观看 暂无记录'}
                                         </div>
                                     )}
 
