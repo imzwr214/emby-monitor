@@ -655,7 +655,7 @@ const App = () => {
             const data = await r.json();
             setUpdateInfo(data);
             if (showAlert) {
-                const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\\n\\n更新内容：\\n' + data.releaseNotes.map(note => '- ' + note).join('\\n') : '';
+                const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\n\n更新内容：\n' + data.releaseNotes.map(note => '- ' + note).join('\n') : '';
                 alert(data.hasUpdate ? ('发现新版本：' + data.latestVersion + notes) : '当前已经是最新版本');
             }
         } catch(e) {
@@ -672,7 +672,7 @@ const App = () => {
             const r = await apiFetch('/api/update/apply', { method: 'POST' });
             const data = await r.json().catch(() => ({}));
             if (!r.ok || !data.ok) throw new Error(data.error || '更新失败');
-            const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\\n\\n更新内容：\\n' + data.releaseNotes.map(note => '- ' + note).join('\\n') : '';
+            const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\n\n更新内容：\n' + data.releaseNotes.map(note => '- ' + note).join('\n') : '';
             alert('更新完成，页面即将刷新' + notes);
             setTimeout(() => location.reload(), 1200);
         } catch(e) { alert('更新失败：' + (e.message || 'Cloudflare API 调用异常')); } finally { setIsApplyingUpdate(false); }
