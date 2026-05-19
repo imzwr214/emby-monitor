@@ -39,12 +39,14 @@ const frontendScript = [
   read('src/frontend/app.jsx')
 ].join('\n').trim();
 
-let html = read('src/frontend/html-shell.html')
-  .replace('{{BOOT_HEAD_SCRIPT}}', indent(bootSection('head'), 8))
-  .replace('{{STYLES}}', indent(read('src/frontend/styles.css'), 8))
-  .replace('{{BOOT_BODY_SCRIPT}}', indent(bootSection('body'), 8))
-  .replace('{{FRONTEND_SCRIPT}}', indent(frontendScript, 8))
-  .replace('{{BOOT_FALLBACK_SCRIPT}}', indent(bootSection('fallback'), 8));
+const replaceLiteral = (content, marker, replacement) => content.replace(marker, () => replacement);
+
+let html = read('src/frontend/html-shell.html');
+html = replaceLiteral(html, '{{BOOT_HEAD_SCRIPT}}', indent(bootSection('head'), 8));
+html = replaceLiteral(html, '{{STYLES}}', indent(read('src/frontend/styles.css'), 8));
+html = replaceLiteral(html, '{{BOOT_BODY_SCRIPT}}', indent(bootSection('body'), 8));
+html = replaceLiteral(html, '{{FRONTEND_SCRIPT}}', indent(frontendScript, 8));
+html = replaceLiteral(html, '{{BOOT_FALLBACK_SCRIPT}}', indent(bootSection('fallback'), 8));
 
 const htmlContentLiteral = JSON.stringify(html);
 

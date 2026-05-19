@@ -442,8 +442,8 @@ const App = () => {
 
     const parseQuickImportText = (value) => {
         const text = String(value || '');
-        const lines = text.split(/\\r?\\n/);
-        const urlMatch = text.match(/https?:\\/\\/[^\\s"'<>，。；、）)】]+/i);
+        const lines = text.split(/\r?\n/);
+        const urlMatch = text.match(/https?:\/\/[^\s"'<>，。；、）)】]+/i);
         const rawUrl = urlMatch ? urlMatch[0].replace(/[.,;，。；]+$/, '') : '';
         return {
             username: extractFieldFromText(lines, ['用户名称', '用户名', '账号', '账户', 'user name', 'username', 'user'], /安全密码|到期|线路|服务器/i),

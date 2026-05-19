@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { babelParse } = require('../node_modules/playwright/lib/transform/babelBundle');
 
 const root = path.resolve(__dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -20,6 +21,18 @@ const verifyModuleSyntax = (sourceText) => {
   } catch (error) {
     fail(`emby.js syntax check failed: ${error.message}`);
   }
+};
+
+const verifyFrontendSyntax = (html) => {
+  const scripts = [...html.matchAll(/<script\b[^>]*type=["']text\/babel["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  if (!scripts.length) fail('missing frontend text/babel script');
+  scripts.forEach((match, index) => {
+    try {
+      babelParse(match[1], `HTML_CONTENT text/babel script #${index + 1}`, { plugins: ['jsx'] });
+    } catch (error) {
+      fail(`frontend JSX syntax check failed: ${error.message}`);
+    }
+  });
 };
 
 const source = read('emby.js');
@@ -60,6 +73,7 @@ if (!frontendVersionMatch) fail('missing frontend APP_VERSION literal');
 if (frontendVersionMatch[1] !== workerVersionMatch[1]) {
   fail(`version mismatch: frontend=${frontendVersionMatch[1]} worker=${workerVersionMatch[1]}`);
 }
+verifyFrontendSyntax(html);
 
 const notesMatch = source.match(/APP_UPDATE_NOTES:\s*\[([\s\S]*?)\]\s*,/);
 if (!notesMatch) fail('missing APP_UPDATE_NOTES array literal with trailing comma');
