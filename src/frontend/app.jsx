@@ -369,7 +369,7 @@ const App = () => {
     const getLastPlayedAt = (server) => {
         const media = server && server.mediaStats ? server.mediaStats : null;
         const keepAlive = media && media.keepAlive ? media.keepAlive : null;
-        return Number(media && media.lastPlayedAt) || Number(keepAlive && keepAlive.lastPlayedAt) || 0;
+        return Number(keepAlive && keepAlive.lastPlayedAt) || Number(media && media.lastPlayedAt) || 0;
     };
     const formatLastPlayed = (server) => {
         const lastPlayedAt = getLastPlayedAt(server);
@@ -576,6 +576,8 @@ const App = () => {
                 accessToken: mediaForm.enabled && !credentialsChanged ? (previousMedia.accessToken || '') : '',
                 userId: mediaForm.enabled && !credentialsChanged ? (previousMedia.userId || '') : '',
                 lastCheck: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastCheck || 0) : 0,
+                lastPlayedAt: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayedAt || (previousKeepAlive.lastPlayedAt || 0)) : 0,
+                lastPlayedCheckAt: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayedCheckAt || 0) : 0,
                 lastError: '', counts: mediaForm.enabled && !credentialsChanged ? (previousMedia.counts || null) : null,
                 previousCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.previousCounts || null) : null,
                 delta24h: mediaForm.enabled && !credentialsChanged ? (previousMedia.delta24h || null) : null,
@@ -892,7 +894,7 @@ const App = () => {
                         {activeTab === 'cards' && (
                         <button
                             onClick={() => setShowLastPlayed(!showLastPlayed)}
-                            className={"mobile-last-played-toggle hidden sm:flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold transition-all items-center gap-1.5 " + (showLastPlayed ? 'bg-white/80 text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
+                            className={"mobile-last-played-toggle flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold transition-all items-center justify-center gap-1.5 " + (showLastPlayed ? 'bg-white/80 text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
                             title="显示或隐藏卡片上的上次观看时间"
                         >
                             {showLastPlayed ? <Icons.Eye className="w-3.5 h-3.5" /> : <Icons.EyeOff className="w-3.5 h-3.5" />}
