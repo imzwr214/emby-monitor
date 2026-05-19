@@ -132,7 +132,7 @@
           const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
           let lastPlayedAt = Number(media.lastPlayedAt) || 0;
           try {
-              lastPlayedAt = Math.max(lastPlayedAt, await this.fetchEmbyLastPlayed(server, token, userId) || 0);
+              lastPlayedAt = Math.max(lastPlayedAt, await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: !lastPlayedAt }) || 0);
           } catch(e) {}
           server.mediaStats = {
               ...media, accessToken: token, userId, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
