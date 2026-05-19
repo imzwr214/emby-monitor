@@ -106,8 +106,9 @@
       const now = Date.now();
       const todayKey = this.getShanghaiDayKey(now);
       const needsDailySnapshot = media.dailyKey !== todayKey || !media.todayCounts || !media.dailyDelta;
-      const needsLastPlayedBackfill = !Number(media.lastPlayedAt);
-      if (!force && media.lastCheck && !needsDailySnapshot && !needsLastPlayedBackfill) return server;
+      const lastPlayedCheckAt = Number(media.lastPlayedCheckAt) || 0;
+      const needsLastPlayedRefresh = !lastPlayedCheckAt || now - lastPlayedCheckAt >= 24 * 60 * 60 * 1000;
+      if (!force && media.lastCheck && !needsDailySnapshot && !needsLastPlayedRefresh) return server;
       server.mediaStatsTouched = true;
 
       try {
@@ -136,7 +137,7 @@
           server.mediaStats = {
               ...media, accessToken: token, userId, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
-              lastCheck: counts.time, lastPlayedAt, lastPlayedCheckAt: lastPlayedAt ? now : (Number(media.lastPlayedCheckAt) || 0), lastError: ''
+              lastCheck: counts.time, lastPlayedAt, lastPlayedCheckAt: now, lastError: ''
           };
       } catch(e) { server.mediaStats = { ...media, lastError: e.message || '媒体库统计失败' }; }
       return server;
