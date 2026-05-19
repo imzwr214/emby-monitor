@@ -1483,13 +1483,15 @@ export default {
             const checkedAt = Date.now();
 
             const probeTargets = this.getProbeTargets(s);
+            const needsMediaRefresh = forceMedia || !s.mediaStats || !Number(s.mediaStats.lastCheck) || !Number(s.mediaStats.lastPlayedAt);
+
             if (!probeTargets.length) {
                 s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
                 s.addressProbeResults = [];
                 if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
                 s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
                 s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-                await this.refreshMediaStatsIfNeeded(s, forceMedia || !s.mediaStats || !s.mediaStats.lastCheck);
+                await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
                 s.previousStatus = previousStatus; return s;
             }
 
@@ -1512,7 +1514,7 @@ export default {
             if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
             s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
             s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-            await this.refreshMediaStatsIfNeeded(s, forceMedia || !s.mediaStats || !s.mediaStats.lastCheck);
+            await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
             s.previousStatus = previousStatus; return s;
         });
 
