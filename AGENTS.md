@@ -4,17 +4,24 @@
 
 ## 版本号检查要求
 
-每次完成修复、优化、功能更新或任何会影响线上行为的代码修改后，必须检查并同步更新版本号。
+本仓库采用 `src/` 多文件源码加根目录 `emby.js` 生成产物的维护方式。不要直接手改根目录 `emby.js`；改动源码后运行构建生成它。
 
-当前项目有两个版本号位置，必须保持一致：
+每次完成修复、优化、功能更新或任何会影响线上行为的代码修改后，必须先更新 `src/app-meta.json`：
 
-- `HTML_CONTENT` 内前端使用的 `const APP_VERSION = '...'`
-- Worker 导出的 `APP_VERSION: '...'`
+- `version` 是唯一版本源。
+- `updateNotes` 必须包含本次主要改动。
 
-同时必须检查 `APP_UPDATE_NOTES`，根据本次改动补充简短更新说明，确保后台“一键更新”能正确发现并展示更新内容。
+随后运行：
 
-提交或推送前至少执行：
+```bash
+npm run build
+npm run verify
+```
 
-- 搜索 `APP_VERSION`，确认两个版本号一致且已递增
-- 检查 `APP_UPDATE_NOTES` 是否包含本次主要改动
+提交或推送前至少确认：
 
+- `npm run check` 通过。
+- 生成产物中前端 `const APP_VERSION` 和 Worker `APP_VERSION:` 与 `src/app-meta.json` 一致。
+- 生成产物中 `APP_UPDATE_NOTES` 已包含本次主要改动。
+- `wrangler.toml` 的 `main = "emby.js"` 没有改变。
+- 不改 API 路径、KV key、自更新 marker、React CDN 版本和 URL 安全边界，除非任务明确要求并已做回归。

@@ -1,0 +1,31 @@
+{
+  "name": "emby",
+  "version": "1.0.0",
+  "description": "一个部署在 Cloudflare Workers 上的 Emby 节点监控面板。它会定时探测多个 Emby 服务器的在线状态、延迟和最近 7 天历史记录，并支持 Telegram 通知、媒体库数量统计和自定义图标库。",
+  "main": "emby.js",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "verify": "node scripts/verify-build.cjs",
+    "check": "npm run build && npm run verify",
+    "test": "npm run check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pototazhang/emby-js.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/pototazhang/emby-js/issues"
+  },
+  "homepage": "https://github.com/pototazhang/emby-js#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "vite": "^8.0.13"
+  }
+}

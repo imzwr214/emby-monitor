@@ -33,11 +33,27 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 
 ```text
 .
-├── emby.js         # Worker 主入口，包含前端页面、API 和定时探测逻辑
-└── wrangler.toml  # Cloudflare Workers 配置
+├── src/
+│   ├── app-meta.json    # 唯一版本源：version 和 updateNotes
+│   ├── frontend/        # 前端 HTML/CSS/JSX 片段，构建后内联进 HTML_CONTENT
+│   └── worker/          # Worker 对象方法片段，构建后拼进 export default
+├── scripts/
+│   ├── build.cjs        # 从 src/ 生成根目录 emby.js
+│   └── verify-build.cjs # 校验生成产物、版本和关键线上协议 marker
+├── emby.js              # 生成产物，部署、自更新和手动复制都使用这个文件
+└── wrangler.toml        # Cloudflare Workers 配置，main 仍指向 emby.js
 ```
 
-`wrangler.toml` 只在使用 Wrangler 命令行部署，或者 Cloudflare 连接仓库自动构建时需要。按下面的控制台方式手动部署时，可以忽略这个文件。
+日常维护请修改 `src/`，不要直接手改根目录 `emby.js`。`wrangler.toml` 只在使用 Wrangler 命令行部署，或者 Cloudflare 连接仓库自动构建时需要。按下面的控制台方式手动部署时，可以忽略这个文件。
+
+## 开发流程
+
+1. 修改 `src/` 中对应职责文件。
+2. 如果改动影响线上行为，先更新 `src/app-meta.json` 的 `version` 和 `updateNotes`。
+3. 执行 `npm run check`，它会重新生成根目录 `emby.js` 并校验版本、更新说明、KV key、自更新 marker 和 `wrangler.toml` 入口。
+4. 提交时包含 `src/`、`scripts/`、文档和生成后的根目录 `emby.js`。
+
+普通部署、GitHub raw 自更新、一键更新和手动复制部署仍然使用根目录 `emby.js`，不需要部署 `src/` 里的拆分文件。
 
 ## 部署要求
 
