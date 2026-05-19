@@ -91,6 +91,12 @@
           if (data && Array.isArray(data.Items)) return data.Items;
           return [];
       };
+      const extractPlayedAt = (item) => {
+          if (!item) return 0;
+          const played = item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : (item.DatePlayed || '');
+          const playedAt = played ? Date.parse(played) : 0;
+          return Number.isFinite(playedAt) && playedAt > 0 ? playedAt : 0;
+      };
       for (const base of bases) {
           for (const path of queries) {
               try {
@@ -102,9 +108,16 @@
                   }
                   const data = await response.json();
                   const item = extractItems(data)[0] || null;
-                  const played = item && item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : (item && item.DatePlayed ? item.DatePlayed : '');
-                  const playedAt = played ? Date.parse(played) : 0;
-                  if (Number.isFinite(playedAt) && playedAt > 0) return playedAt;
+                  const playedAt = extractPlayedAt(item);
+                  if (playedAt) return playedAt;
+                  if (item && item.Id) {
+                      const detailResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(item.Id) + '?EnableUserData=true&Fields=UserData&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
+                      if (detailResponse.ok) {
+                          const detail = await detailResponse.json();
+                          const detailPlayedAt = extractPlayedAt(detail);
+                          if (detailPlayedAt) return detailPlayedAt;
+                      }
+                  }
               } catch(e) {
                   lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
               }
