@@ -67,14 +67,24 @@
 
   async probeEmbyServer(server, targetUrl) {
       const headers = { 'Accept': 'application/json,text/plain,*/*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36' };
-      const paths = ['/emby/System/Info/Public', '/System/Info/Public', '/emby/Users/Public'];
+      const primaryPath = '/System/Info/Public';
+      const fallbackPaths = ['/emby/System/Info/Public', '/emby/Users/Public'];
       const start = Date.now();
-      for (const path of paths) {
+      const probePath = async (path) => {
           try {
-              const r = await this.fetchWithTimeout(targetUrl + path, { method: 'GET', headers }, 5000);
-              if (r.status >= 200 && r.status < 400) return { ok: true, latency: Date.now() - start };
-              if (r.status === 401 || r.status === 403) return { ok: true, latency: Date.now() - start };
-          } catch(e) {}
+              const response = await this.fetchWithTimeout(targetUrl + path, { method: 'GET', headers }, 12000);
+              if (response.status >= 200 && response.status < 400) return { ok: true, latency: Date.now() - start };
+              if (response.status === 401 || response.status === 403) return { ok: true, latency: Date.now() - start };
+              return { ok: false, latency: 0 };
+          } catch(e) {
+              return { ok: false, latency: 0 };
+          }
+      };
+      const primaryResult = await probePath(primaryPath);
+      if (primaryResult.ok) return primaryResult;
+      for (const path of fallbackPaths) {
+          const result = await probePath(path);
+          if (result.ok) return result;
       }
       return { ok: false, latency: 0 };
   },
@@ -273,12 +283,16 @@
       const forceMedia = Boolean(options.forceMedia);
       const probeSource = options.source === 'manual' ? 'manual' : 'scheduled';
       const concurrencyLimit = Math.max(1, Number(this.PROBE_CONCURRENCY_LIMIT) || 4);
-      const batchSize = forceMedia ? concurrencyLimit : config.servers.length;
-      const cursor = forceMedia ? Math.max(0, Number(options.cursor) || 0) : 0;
-      const batchEnd = Math.min(config.servers.length, cursor + batchSize);
+      const batchSize = 3;
+      const totalServers = config.servers.length;
+      const rawCursor = probeSource === 'scheduled'
+          ? Number(config.nextScheduledCursor) || 0
+          : Number(options.cursor) || 0;
+      const cursor = totalServers > 0 ? (rawCursor >= totalServers ? 0 : Math.max(0, rawCursor)) : 0;
+      const batchEnd = Math.min(totalServers, cursor + batchSize);
       const batchIds = new Set(config.servers.slice(cursor, batchEnd).map((s) => s.id));
       const probeTargets = config.servers.filter((s) => batchIds.has(s.id));
-      await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers: config.servers.length, targetCount: probeTargets.length }, { config });
+      await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers, targetCount: probeTargets.length }, { config });
 
       const probedServers = await this.mapWithConcurrency(probeTargets, concurrencyLimit, async (s) => {
           const previousStatus = s.status;
@@ -327,7 +341,7 @@
               s.consecutiveFailures = (Number(s.consecutiveFailures) || 0) + 1;
               s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
               const failureWindowMs = checkedAt - s.firstFailureAt;
-              const shouldConfirmOffline = previousStatus === 'offline' || (s.consecutiveFailures >= (Number(this.OFFLINE_CONFIRMATION_THRESHOLD) || 3) && failureWindowMs >= (Number(this.OFFLINE_CONFIRMATION_WINDOW_MS) || 15 * 60 * 1000));
+              const shouldConfirmOffline = previousStatus === 'offline' || (s.consecutiveFailures >= 1 && failureWindowMs >= (Number(this.OFFLINE_CONFIRMATION_WINDOW_MS) || 3 * 60 * 1000));
               if (shouldConfirmOffline) {
                   s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
               } else {
@@ -347,20 +361,7 @@
           s.previousStatus = previousStatus; return s;
       });
 
-      const suppressProbeFailures = !forceMedia && (() => {
-          const previousOnlineTargets = probedServers.filter((server) => server && server.previousStatus === 'online');
-          if (previousOnlineTargets.length < 3) return false;
-          const failedOnlineTargets = previousOnlineTargets.filter((server) => server.status !== 'online');
-          const ratio = failedOnlineTargets.length / previousOnlineTargets.length;
-          return ratio >= (Number(this.PROBE_FAILURE_SUPPRESSION_RATIO) || 0.5);
-      })();
-      if (suppressProbeFailures) {
-          console.log('[probe] suppressing broad probe failure run', {
-              targets: probedServers.length,
-              previousOnline: probedServers.filter((server) => server && server.previousStatus === 'online').length,
-              failedPreviousOnline: probedServers.filter((server) => server && server.previousStatus === 'online' && server.status !== 'online').length
-          });
-      }
+      const suppressProbeFailures = false; // 分批探测模式下禁用单批次大面积掉线防误报拦截
 
       const probedById = new Map(probedServers.map((s) => [s.id, s]));
       const latestConfig = await this.loadConfig(env);
@@ -372,13 +373,13 @@
           icons: baseConfig.icons, telegram: baseConfig.telegram, logging: baseConfig.logging, updatedAt: Math.max(baseConfig.updatedAt || 0, latestConfig.updatedAt || 0),
           servers: baseConfig.servers.map((latest) => {
               const probed = probedById.get(latest.id);
-              if (!probed || probed.url !== latest.url) return latest;
               const previouslySaved = latestById.get(latest.id) || latest;
-              const shouldPreserveBroadFailure = suppressProbeFailures && previouslySaved.status === 'online' && probed.status !== 'online';
-              const mergedServer = shouldPreserveBroadFailure
-                  ? { ...latest, lastCheck: probed.lastCheck, consecutiveFailures: probed.consecutiveFailures || 0, firstFailureAt: probed.firstFailureAt || 0, addressProbeResults: probed.addressProbeResults || [], mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats }
-                  : { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, consecutiveFailures: probed.consecutiveFailures || 0, firstFailureAt: probed.firstFailureAt || 0, addressProbeResults: probed.addressProbeResults || [], history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
-              const oldStatus = previouslySaved.url === latest.url && JSON.stringify(previouslySaved.fallbackUrls || []) === JSON.stringify(latest.fallbackUrls || []) ? previouslySaved.status : probed.previousStatus;
+              let mergedServer = latest;
+              let oldStatus = previouslySaved.status;
+              if (probed && probed.url === latest.url) {
+                  mergedServer = { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, consecutiveFailures: probed.consecutiveFailures || 0, firstFailureAt: probed.firstFailureAt || 0, addressProbeResults: probed.addressProbeResults || [], history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
+                  oldStatus = previouslySaved.url === latest.url && JSON.stringify(previouslySaved.fallbackUrls || []) === JSON.stringify(latest.fallbackUrls || []) ? previouslySaved.status : probed.previousStatus;
+              }
               const telegramEnabled = this.isTelegramEnabled(env, baseConfig);
               const shouldSendOffline = this.shouldSendOfflineAlert(mergedServer);
               if (mergedServer.status === 'offline') {
@@ -403,11 +404,13 @@
               return mergedServer;
           })
       };
-      if (forceMedia) {
-          mergedConfig.nextCursor = batchEnd < baseConfig.servers.length ? batchEnd : 0;
-          mergedConfig.hasMore = batchEnd < baseConfig.servers.length;
+      const nextCursor = batchEnd < totalServers ? batchEnd : 0;
+      mergedConfig.nextCursor = nextCursor;
+      mergedConfig.hasMore = nextCursor !== 0;
+      if (probeSource === 'scheduled') {
+          mergedConfig.nextScheduledCursor = nextCursor;
       }
-      const keepAliveTargets = forceMedia ? mergedConfig.servers.filter((server) => batchIds.has(server.id)) : mergedConfig.servers;
+      const keepAliveTargets = mergedConfig.servers.filter((server) => batchIds.has(server.id));
       const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server));
       for (const result of keepAliveResults) {
           if (!result || !result.touched) continue;
@@ -461,6 +464,7 @@
           forceMedia,
           cursor,
           hasMore: Boolean(mergedConfig.hasMore),
+          nextScheduledCursor: Number(mergedConfig.nextScheduledCursor) || 0,
           elapsedMs: Date.now() - probeStartedAt,
           statusCounts,
           suppressedBroadFailure: Boolean(suppressProbeFailures),

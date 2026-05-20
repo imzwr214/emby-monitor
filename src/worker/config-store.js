@@ -6,12 +6,16 @@
  */
   async loadConfig(env) {
       const raw = await env.EMBY_DB.get('config');
-      if (!raw) return this.withRevision({ servers: [], icons: {}, updatedAt: 0 });
-      try { return this.withRevision(JSON.parse(raw)); } catch(e) { return this.withRevision({ servers: [], icons: {}, updatedAt: 0 }); }
+      if (!raw) return this.withRevision({ servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0 });
+      try { return this.withRevision(JSON.parse(raw)); } catch(e) { return this.withRevision({ servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0 }); }
   },
 
   async saveConfig(env, config) {
-      const cleanConfig = this.withRevision(config);
+      const currentConfig = await this.loadConfig(env);
+      const nextScheduledCursor = Number.isFinite(Number(config && config.nextScheduledCursor))
+          ? Math.max(0, Number(config.nextScheduledCursor))
+          : (Number.isFinite(Number(currentConfig.nextScheduledCursor)) ? Math.max(0, Number(currentConfig.nextScheduledCursor)) : 0);
+      const cleanConfig = this.withRevision({ ...currentConfig, ...config, nextScheduledCursor });
       await env.EMBY_DB.put('config', JSON.stringify(this.sanitizeConfig(cleanConfig)));
       return cleanConfig;
   },
@@ -35,8 +39,9 @@
   },
 
   sanitizeConfig(config) {
-      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0 };
+      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0 };
       if (config && Number.isFinite(Number(config.updatedAt))) clean.updatedAt = Math.max(0, Number(config.updatedAt));
+      if (config && Number.isFinite(Number(config.nextScheduledCursor))) clean.nextScheduledCursor = Math.max(0, Number(config.nextScheduledCursor));
       if (config && config.telegram && typeof config.telegram === 'object') {
           clean.telegram = { enabled: Boolean(config.telegram.enabled), botToken: String(config.telegram.botToken || '').trim(), chatId: String(config.telegram.chatId || '').trim() };
       }

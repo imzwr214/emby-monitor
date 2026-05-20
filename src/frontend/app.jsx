@@ -219,10 +219,10 @@ const App = () => {
         try {
             let cursor = 0;
             let updatedData = null;
-            const batchSize = 4;
+            const batchSize = 3;
             do {
                 const pendingIds = new Set(
-                    currentServers.slice(cursor, options.forceMedia ? cursor + batchSize : currentServers.length).map((server) => server.id)
+                    currentServers.slice(cursor, cursor + batchSize).map((server) => server.id)
                 );
                 if (pendingIds.size) {
                     setServers((current) => current.map((server) => pendingIds.has(server.id) ? { ...server, status: 'updating', latency: 0 } : server));
@@ -230,11 +230,7 @@ const App = () => {
                 const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia), cursor }) });
                 if (!res.ok) throw new Error('测速接口异常');
                 updatedData = await res.json();
-                const futureIds = new Set(
-                    options.forceMedia && updatedData.hasMore
-                        ? currentServers.slice(Number(updatedData.nextCursor) || 0).map((server) => server.id)
-                        : []
-                );
+                const futureIds = new Set(updatedData.hasMore ? currentServers.slice(Number(updatedData.nextCursor) || 0).map((server) => server.id) : []);
                 setServers(Array.isArray(updatedData.servers)
                     ? updatedData.servers.map((server) => futureIds.has(server.id) ? { ...server, status: 'updating', latency: 0 } : server)
                     : []
