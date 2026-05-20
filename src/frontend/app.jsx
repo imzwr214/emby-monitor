@@ -36,6 +36,10 @@ const App = () => {
     const [keepAliveForm, setKeepAliveForm] = useState({ enabled: false, periodDays: '', alertDays: '' });
     const [quickImportText, setQuickImportText] = useState('');
     const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
+    const [loggingEnabled, setLoggingEnabled] = useState(false);
+    const [runtimeLogs, setRuntimeLogs] = useState([]);
+    const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+    const [isSavingLogging, setIsSavingLogging] = useState(false);
     const [isTestingTelegram, setIsTestingTelegram] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('cards');
@@ -104,6 +108,7 @@ const App = () => {
             configRevisionRef.current = nextRevision;
             setNotifyEnabled(Boolean(data.notifyEnabled));
             setTelegramForm(data.telegram || { enabled: false, botToken: '', chatId: '' });
+            setLoggingEnabled(Boolean(data.logging && data.logging.enabled));
             if (data.icons) {
                 setIconLib(data.icons);
                 setIconInput(localStorage.getItem('last_icon_input') || "");
@@ -167,7 +172,7 @@ const App = () => {
             const nextUpdatedAt = Date.now();
             setConfigUpdatedAt(nextUpdatedAt);
             configUpdatedAtRef.current = nextUpdatedAt;
-            const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: serversToSave, icons: iconsToSave, telegram: telegramToSave, updatedAt: nextUpdatedAt, baseRevision }) });
+            const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: serversToSave, icons: iconsToSave, telegram: telegramToSave, logging: { enabled: loggingEnabled }, updatedAt: nextUpdatedAt, baseRevision }) });
             const saveResult = await res.json().catch(() => ({}));
             return { res, saveResult, nextUpdatedAt };
         };
@@ -235,7 +240,8 @@ const App = () => {
                     : []
                 );
                 setIconLib(updatedData.icons);
-                setTelegramForm(updatedData.telegram || telegramForm);
+            setTelegramForm(updatedData.telegram || telegramForm);
+            if (updatedData.logging) setLoggingEnabled(Boolean(updatedData.logging.enabled));
                 const nextUpdatedAt = Number(updatedData.updatedAt) || configUpdatedAtRef.current;
                 const nextRevision = updatedData.revision || configRevisionRef.current;
                 setConfigUpdatedAt(nextUpdatedAt);
@@ -633,11 +639,11 @@ const App = () => {
                 const previousFallbackUrls = Array.isArray(server.fallbackUrls) ? server.fallbackUrls : [];
                 const fallbackChanged = JSON.stringify(previousFallbackUrls) !== JSON.stringify(cleanFallbackUrls);
                 const urlChanged = server.url !== finalUrl || fallbackChanged;
-                return { ...server, name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, status: urlChanged ? 'updating' : server.status, latency: urlChanged ? 0 : server.latency, consecutiveFailures: urlChanged ? 0 : (Number(server.consecutiveFailures) || 0), mediaStats: buildMediaStats(server) };
+                return { ...server, name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, status: urlChanged ? 'unknown' : server.status, latency: urlChanged ? 0 : server.latency, consecutiveFailures: urlChanged ? 0 : (Number(server.consecutiveFailures) || 0), mediaStats: buildMediaStats(server) };
             });
         } else {
             newServer = {
-                id: Date.now(), name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, customIcon: null, status: 'updating',
+                id: Date.now(), name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, customIcon: null, status: 'unknown',
                 totalChecks: 0, successfulChecks: 0, uptime: "0.0", latency: 0, lastCheck: 0, consecutiveFailures: 0, history: [], mediaStats: buildMediaStats(null)
             };
             updatedServers = [...servers, newServer];
@@ -730,6 +736,80 @@ const App = () => {
             alert('更新完成，页面即将刷新' + notes);
             setTimeout(() => location.reload(), 1200);
         } catch(e) { alert('更新失败：' + (e.message || 'Cloudflare API 调用异常')); } finally { setIsApplyingUpdate(false); }
+    };
+
+    const fetchRuntimeLogs = async () => {
+        setIsLoadingLogs(true);
+        try {
+            const r = await apiFetch('/api/logs');
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.ok) throw new Error(data.error || '日志读取失败');
+            setRuntimeLogs(Array.isArray(data.logs) ? data.logs : []);
+        } catch(e) {
+            alert('日志读取失败：' + (e.message || '请稍后重试'));
+        } finally {
+            setIsLoadingLogs(false);
+        }
+    };
+
+    const saveLoggingSetting = async () => {
+        setIsSavingLogging(true);
+        try {
+            const r = await apiFetch('/api/logging', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: loggingEnabled })
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.ok) throw new Error(data.error || '日志设置保存失败');
+            setLoggingEnabled(Boolean(data.logging && data.logging.enabled));
+            if (data.revision) {
+                setConfigRevision(data.revision);
+                configRevisionRef.current = data.revision;
+            }
+            if (Number(data.updatedAt)) {
+                setConfigUpdatedAt(Number(data.updatedAt));
+                configUpdatedAtRef.current = Number(data.updatedAt);
+            }
+            await fetchRuntimeLogs();
+        } catch(e) {
+            alert('日志设置保存失败：' + (e.message || '请稍后重试'));
+        } finally {
+            setIsSavingLogging(false);
+        }
+    };
+
+    const downloadRuntimeLogs = async () => {
+        try {
+            const r = await apiFetch('/api/logs?format=text');
+            if (!r.ok) throw new Error(await r.text() || '日志下载失败');
+            const text = await r.text();
+            const blobUrl = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = 'emby-runtime-logs-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(blobUrl);
+        } catch(e) {
+            alert('日志下载失败：' + (e.message || '请稍后重试'));
+        }
+    };
+
+    const clearRuntimeLogs = async () => {
+        if (!confirm('确认清空运行日志？')) return;
+        setIsLoadingLogs(true);
+        try {
+            const r = await apiFetch('/api/logs', { method: 'DELETE' });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.ok) throw new Error(data.error || '日志清空失败');
+            setRuntimeLogs(Array.isArray(data.logs) ? data.logs : []);
+        } catch(e) {
+            alert('日志清空失败：' + (e.message || '请稍后重试'));
+        } finally {
+            setIsLoadingLogs(false);
+        }
     };
 
     if (accessDenied) return <div className="flex items-center justify-center min-h-screen p-6 text-center"><div className="max-w-lg w-full glass-panel bg-white/80 rounded-[2rem] p-8 shadow-2xl border border-white"><div className="text-rose-600 font-black text-lg mb-2">访问被拒绝</div><div className="text-slate-600 text-sm font-semibold whitespace-pre-wrap">{accessDenied}</div></div></div>;
@@ -856,7 +936,7 @@ const App = () => {
                                 {showLastPlayed ? <Icons.Clock className="w-5 h-5" /> : <Icons.ClockOff className="w-5 h-5" />}
                             </button>
                             <button
-                                onClick={() => setIsSettingsOpen(true)}
+                                onClick={() => { setIsSettingsOpen(true); fetchRuntimeLogs(); }}
                                 title="系统设置"
                                 className="relative w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
                             >
@@ -1235,6 +1315,53 @@ const App = () => {
                                             {isApplyingUpdate ? '更新中...' : '一键更新'}
                                         </button>
                                     </div>
+                                </div>
+                                </div>
+
+                                {/* 运行日志 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                            <Icons.Activity className="w-4 h-4 text-slate-600" />运行日志
+                                        </div>
+                                        <div className="mt-1 text-[11px] font-bold text-slate-500">
+                                            默认关闭；开启后会写入 KV，仅用于排障。
+                                        </div>
+                                    </div>
+                                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+                                        <input type="checkbox" checked={loggingEnabled} onChange={e => setLoggingEnabled(e.target.checked)} className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500" />
+                                        启用详细日志
+                                    </label>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                    <button onClick={saveLoggingSetting} disabled={isSavingLogging} className="py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 disabled:opacity-60 font-bold text-xs rounded-xl transition-colors border border-emerald-200">
+                                        {isSavingLogging ? '保存中...' : '保存开关'}
+                                    </button>
+                                    <button onClick={fetchRuntimeLogs} disabled={isLoadingLogs} className="py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-60 font-bold text-xs rounded-xl transition-colors border border-blue-200">
+                                        {isLoadingLogs ? '读取中...' : '刷新日志'}
+                                    </button>
+                                    <button onClick={downloadRuntimeLogs} className="py-2 bg-white text-slate-600 hover:bg-slate-50 font-bold text-xs rounded-xl transition-colors border border-slate-200">
+                                        下载日志
+                                    </button>
+                                    <button onClick={clearRuntimeLogs} disabled={isLoadingLogs} className="py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 disabled:opacity-60 font-bold text-xs rounded-xl transition-colors border border-rose-200">
+                                        清空
+                                    </button>
+                                </div>
+                                <div className="max-h-52 overflow-y-auto rounded-2xl bg-slate-950/90 border border-slate-900 p-3 text-[11px] leading-relaxed font-mono text-slate-200">
+                                    {runtimeLogs.length === 0 ? (
+                                        <div className="text-slate-400 font-sans font-bold text-center py-6">{isLoadingLogs ? '正在读取日志...' : '暂无日志'}</div>
+                                    ) : (
+                                        runtimeLogs.slice(-40).reverse().map((entry, index) => (
+                                            <div key={index} className="mb-2 last:mb-0 whitespace-pre-wrap break-words">
+                                                <span className={entry.level === 'error' ? 'text-rose-300' : entry.level === 'warn' ? 'text-amber-300' : 'text-emerald-300'}>
+                                                    [{String(entry.level || 'info').toUpperCase()}]
+                                                </span>
+                                                <span className="text-slate-400"> {new Date(Number(entry.time) || Date.now()).toLocaleString('zh-CN', { hour12: false })}</span>
+                                                <span> {entry.event || 'event'} - {entry.message || ''}</span>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
                                 </div>
 

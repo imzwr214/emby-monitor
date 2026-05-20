@@ -60,6 +60,7 @@ const workerFiles = [
   'updater.js',
   'config-store.js',
   'utils.js',
+  'logs.js',
   'url-safety.js',
   'emby-api.js',
   'probe.js'

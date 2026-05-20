@@ -133,7 +133,7 @@
 
       if (request.method === 'GET') {
           const config = await this.loadConfig(env);
-          return this.json({ ...config, notifyEnabled: this.isTelegramEnabled(env, config), telegram: this.getTelegramConfig(env, config), publicShareBaseUrl: this.getPublicShareBaseUrl(env), publicShareWildcardDomain: this.getPublicShareWildcardDomain(env) });
+          return this.json({ ...config, notifyEnabled: this.isTelegramEnabled(env, config), telegram: this.getTelegramConfig(env, config), logging: config.logging || { enabled: false }, publicShareBaseUrl: this.getPublicShareBaseUrl(env), publicShareWildcardDomain: this.getPublicShareWildcardDomain(env) });
       }
       if (request.method === 'POST') {
           const nextConfig = await request.json();
@@ -150,6 +150,17 @@
       }
     }
 
+    if (url.pathname === '/api/logging' && request.method === 'POST') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+
+      const body = await request.json().catch(() => ({}));
+      const currentConfig = await this.loadConfig(env);
+      const nextConfig = await this.saveConfig(env, { ...currentConfig, logging: { enabled: Boolean(body.enabled) }, updatedAt: Date.now() });
+      await this.appendRuntimeLog(env, 'info', 'logs.toggle', Boolean(body.enabled) ? '运行日志已开启' : '运行日志已关闭', {}, { force: true });
+      return this.json({ ok: true, logging: nextConfig.logging || { enabled: false }, updatedAt: nextConfig.updatedAt, revision: nextConfig.revision });
+    }
+
     if (url.pathname === '/api/telegram/test' && request.method === 'POST') {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
@@ -161,6 +172,7 @@
           telegram: body.telegram && typeof body.telegram === 'object' ? body.telegram : currentConfig.telegram
       });
       const result = await this.testTelegram(env, testConfig);
+      await this.appendRuntimeLog(env, result.ok ? 'info' : 'warn', 'telegram.test', result.ok ? 'Telegram 测试通知发送成功' : 'Telegram 测试通知发送失败', { status: result.status || 0, error: result.error || '' }, { config: testConfig });
       return this.json(result, result.ok ? 200 : 400);
     }
 
@@ -204,13 +216,36 @@
         }
     }
 
+    if (url.pathname === '/api/logs') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+
+      if (request.method === 'GET') {
+          const logs = await this.readRuntimeLogs(env);
+          if (url.searchParams.get('format') === 'text') {
+              return new Response(this.formatRuntimeLogs(logs), {
+                  headers: {
+                      'Content-Type': 'text/plain;charset=utf-8',
+                      'Cache-Control': 'no-store',
+                      'Content-Disposition': 'attachment; filename="emby-runtime-logs.txt"'
+                  }
+              });
+          }
+          return this.json({ ok: true, logs });
+      }
+      if (request.method === 'DELETE') {
+          await this.clearRuntimeLogs(env);
+          return this.json({ ok: true, logs: await this.readRuntimeLogs(env) });
+      }
+    }
+
     if (url.pathname === '/api/ping-all' && request.method === 'POST') {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
 
       const requestBody = await request.json().catch(() => ({}));
       const currentConfig = await this.loadConfig(env);
-      const updatedConfig = await this.runProbeLogic(env, currentConfig, { forceMedia: Boolean(requestBody.forceMedia), cursor: Number(requestBody.cursor) || 0 });
+      const updatedConfig = await this.runProbeLogic(env, currentConfig, { forceMedia: Boolean(requestBody.forceMedia), cursor: Number(requestBody.cursor) || 0, source: 'manual' });
       return this.json({ ...updatedConfig, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
     }
 
@@ -219,9 +254,12 @@
       if (auth) return auth;
 
       try {
+          const logConfig = await this.loadConfig(env);
+          await this.appendRuntimeLog(env, 'info', 'update.check', '开始检查程序更新', {}, { config: logConfig });
           const latestSource = await this.fetchLatestWorkerSource(env);
           const latestVersion = this.extractAppVersion(latestSource) || 'unknown';
           const releaseNotes = this.extractUpdateNotes(latestSource);
+          await this.appendRuntimeLog(env, 'info', 'update.check.done', '程序更新检查完成', { currentVersion: this.APP_VERSION, latestVersion, hasUpdate: latestVersion !== 'unknown' && latestVersion !== this.APP_VERSION }, { config: logConfig });
           return this.json({
               currentVersion: this.APP_VERSION,
               latestVersion,
@@ -232,6 +270,7 @@
               missing: this.getMissingUpdateEnv(env)
           });
       } catch(e) {
+          await this.appendRuntimeLog(env, 'error', 'update.check.error', '程序更新检查失败', { error: e.message || String(e) });
           return this.json({
               currentVersion: this.APP_VERSION,
               latestVersion: 'unknown',
@@ -252,14 +291,18 @@
           return this.json({ ok: false, error: 'Self update is not configured', missing: this.getMissingUpdateEnv(env) }, 400);
       }
       try {
+          const logConfig = await this.loadConfig(env);
+          await this.appendRuntimeLog(env, 'info', 'update.apply', '开始执行程序更新', {}, { config: logConfig });
           const latestSource = await this.fetchLatestWorkerSource(env);
           const latestVersion = this.extractAppVersion(latestSource);
           if (!latestVersion) return this.json({ ok: false, error: 'Latest source has no APP_VERSION' }, 422);
           const releaseNotes = this.extractUpdateNotes(latestSource);
           if (latestVersion === this.APP_VERSION) return this.json({ ok: true, updated: false, version: this.APP_VERSION, releaseNotes });
           await this.deployWorkerSource(env, latestSource);
+          await this.appendRuntimeLog(env, 'info', 'update.apply.done', '程序更新部署完成', { previousVersion: this.APP_VERSION, version: latestVersion }, { config: logConfig });
           return this.json({ ok: true, updated: true, previousVersion: this.APP_VERSION, version: latestVersion, releaseNotes });
       } catch(e) {
+          await this.appendRuntimeLog(env, 'error', 'update.apply.error', '程序更新失败', { error: e.message || String(e) });
           return this.json({ ok: false, error: e.message || 'Update failed' }, 502);
       }
     }
@@ -268,5 +311,5 @@
   },
 
   async scheduled(event, env, ctx) {
-      ctx.waitUntil(this.loadConfig(env).then((config) => this.runProbeLogic(env, config)));
+      ctx.waitUntil(this.loadConfig(env).then((config) => this.runProbeLogic(env, config, { source: 'scheduled' })).catch((e) => this.appendRuntimeLog(env, 'error', 'probe.scheduled.error', '定时探测失败', { error: e.message || String(e) })));
   },

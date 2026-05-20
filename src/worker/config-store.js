@@ -25,7 +25,7 @@
   configRevision(config) {
       const clean = this.sanitizeConfig(config);
       const settingsOnly = {
-          icons: clean.icons, telegram: clean.telegram,
+          icons: clean.icons, telegram: clean.telegram, logging: clean.logging,
           servers: clean.servers.map((server) => ({ id: server.id, name: server.name, url: server.url, fallbackUrls: server.fallbackUrls, customIcon: server.customIcon, mediaStats: { enabled: Boolean(server.mediaStats && server.mediaStats.enabled), username: server.mediaStats ? server.mediaStats.username : '', password: server.mediaStats ? server.mediaStats.password : '', keepAlive: server.mediaStats ? { enabled: Boolean(server.mediaStats.keepAlive && server.mediaStats.keepAlive.enabled), periodDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.periodDays : 30, alertDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.alertDays : 27 } : { enabled: false, periodDays: 30, alertDays: 27 } } }))
       };
       const text = JSON.stringify(settingsOnly);
@@ -35,10 +35,13 @@
   },
 
   sanitizeConfig(config) {
-      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, updatedAt: 0 };
+      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0 };
       if (config && Number.isFinite(Number(config.updatedAt))) clean.updatedAt = Math.max(0, Number(config.updatedAt));
       if (config && config.telegram && typeof config.telegram === 'object') {
           clean.telegram = { enabled: Boolean(config.telegram.enabled), botToken: String(config.telegram.botToken || '').trim(), chatId: String(config.telegram.chatId || '').trim() };
+      }
+      if (config && config.logging && typeof config.logging === 'object') {
+          clean.logging = { enabled: Boolean(config.logging.enabled) };
       }
       if (config && Array.isArray(config.servers)) {
           clean.servers = config.servers
@@ -60,7 +63,7 @@
                       .slice(0, 4) : [];
                   return {
                       id: s.id || Date.now(), name: String(s.name || parsed.hostname).slice(0, 80), url: mainUrl, fallbackUrls, customIcon: typeof s.customIcon === 'string' ? s.customIcon : null,
-                      status: ['online', 'offline', 'updating', 'unknown'].includes(s.status) ? s.status : 'unknown',
+                      status: ['online', 'offline', 'unknown'].includes(s.status) ? s.status : 'unknown',
                       totalChecks: Number.isFinite(Number(s.totalChecks)) ? Math.max(0, Number(s.totalChecks)) : 0, successfulChecks: Number.isFinite(Number(s.successfulChecks)) ? Math.max(0, Number(s.successfulChecks)) : 0,
                       uptime: typeof s.uptime === 'string' ? s.uptime : '0.0', latency: Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0,
                       lastCheck: Number.isFinite(Number(s.lastCheck)) ? Number(s.lastCheck) : 0, offlineSince: Number.isFinite(Number(s.offlineSince)) ? Math.max(0, Number(s.offlineSince)) : 0,

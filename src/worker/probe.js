@@ -269,13 +269,16 @@
 
   async runProbeLogic(env, config, options = {}) {
       if (!config || !config.servers || config.servers.length === 0) return config;
+      const probeStartedAt = Date.now();
       const forceMedia = Boolean(options.forceMedia);
+      const probeSource = options.source === 'manual' ? 'manual' : 'scheduled';
       const concurrencyLimit = Math.max(1, Number(this.PROBE_CONCURRENCY_LIMIT) || 4);
       const batchSize = forceMedia ? concurrencyLimit : config.servers.length;
       const cursor = forceMedia ? Math.max(0, Number(options.cursor) || 0) : 0;
       const batchEnd = Math.min(config.servers.length, cursor + batchSize);
       const batchIds = new Set(config.servers.slice(cursor, batchEnd).map((s) => s.id));
       const probeTargets = config.servers.filter((s) => batchIds.has(s.id));
+      await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers: config.servers.length, targetCount: probeTargets.length }, { config });
 
       const probedServers = await this.mapWithConcurrency(probeTargets, concurrencyLimit, async (s) => {
           const previousStatus = s.status;
@@ -364,9 +367,9 @@
       const latestById = new Map(latestConfig.servers.map((s) => [s.id, s]));
       const notifyQueue = [];
       const sourceConfig = latestConfig;
-      const baseConfig = this.sanitizeConfig({ icons: sourceConfig.icons !== undefined ? sourceConfig.icons : latestConfig.icons, telegram: sourceConfig.telegram !== undefined ? sourceConfig.telegram : latestConfig.telegram, servers: sourceConfig.servers, updatedAt: sourceConfig.updatedAt || latestConfig.updatedAt || 0 });
+      const baseConfig = this.sanitizeConfig({ icons: sourceConfig.icons !== undefined ? sourceConfig.icons : latestConfig.icons, telegram: sourceConfig.telegram !== undefined ? sourceConfig.telegram : latestConfig.telegram, logging: sourceConfig.logging !== undefined ? sourceConfig.logging : latestConfig.logging, servers: sourceConfig.servers, updatedAt: sourceConfig.updatedAt || latestConfig.updatedAt || 0 });
       const mergedConfig = {
-          icons: baseConfig.icons, telegram: baseConfig.telegram, updatedAt: Math.max(baseConfig.updatedAt || 0, latestConfig.updatedAt || 0),
+          icons: baseConfig.icons, telegram: baseConfig.telegram, logging: baseConfig.logging, updatedAt: Math.max(baseConfig.updatedAt || 0, latestConfig.updatedAt || 0),
           servers: baseConfig.servers.map((latest) => {
               const probed = probedById.get(latest.id);
               if (!probed || probed.url !== latest.url) return latest;
@@ -439,6 +442,32 @@
           }
       }
       await this.saveConfig(env, mergedConfig);
+      const statusCounts = mergedConfig.servers.reduce((counts, server) => {
+          const status = ['online', 'offline', 'unknown'].includes(server.status) ? server.status : 'unknown';
+          counts[status] = (counts[status] || 0) + 1;
+          return counts;
+      }, { online: 0, offline: 0, unknown: 0 });
+      const probeDetails = probedServers.map((server) => ({
+          id: server.id,
+          name: server.name,
+          previousStatus: server.previousStatus,
+          status: server.status,
+          latency: server.latency,
+          failures: server.consecutiveFailures || 0,
+          addresses: Array.isArray(server.addressProbeResults) ? server.addressProbeResults.map((item) => ({ url: item.url, ok: item.ok, latency: item.latency || 0, error: item.error || '' })) : []
+      }));
+      await this.appendRuntimeLog(env, suppressProbeFailures ? 'warn' : 'info', 'probe.done', (probeSource === 'manual' ? '手动刷新完成' : '定时探测完成'), {
+          source: probeSource,
+          forceMedia,
+          cursor,
+          hasMore: Boolean(mergedConfig.hasMore),
+          elapsedMs: Date.now() - probeStartedAt,
+          statusCounts,
+          suppressedBroadFailure: Boolean(suppressProbeFailures),
+          notifyCount: notifyQueue.length,
+          notifySuccessCount: sendResults.filter(Boolean).length,
+          targets: probeDetails
+      }, { config: mergedConfig });
       return mergedConfig;
   }
 ,
