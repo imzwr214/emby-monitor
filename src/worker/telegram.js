@@ -211,11 +211,11 @@
   },
   updateOfflineNotifyState(server, previousStatus, checkedAt) {
       if (server.status === 'offline') {
-          const wasOffline = previousStatus === 'offline';
           const previousOfflineSince = Number.isFinite(Number(server.offlineSince)) ? Number(server.offlineSince) : 0;
           const previousAlertSentAt = Number.isFinite(Number(server.offlineAlertSentAt)) ? Number(server.offlineAlertSentAt) : 0;
-          server.offlineSince = wasOffline && previousOfflineSince > 0 ? previousOfflineSince : checkedAt;
-          server.offlineAlertSentAt = wasOffline ? Math.max(0, previousAlertSentAt) : 0;
+          const shouldPreserveOfflineState = previousStatus === 'offline' || (previousStatus !== 'online' && previousOfflineSince > 0);
+          server.offlineSince = shouldPreserveOfflineState && previousOfflineSince > 0 ? previousOfflineSince : checkedAt;
+          server.offlineAlertSentAt = shouldPreserveOfflineState ? Math.max(0, previousAlertSentAt) : 0;
           return server;
       }
       if (server.status === 'online') { server.offlineSince = 0; server.offlineAlertSentAt = 0; }

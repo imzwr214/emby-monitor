@@ -209,7 +209,14 @@ const App = () => {
         try {
             let cursor = 0;
             let updatedData = null;
+            const batchSize = 4;
             do {
+                const pendingIds = new Set(
+                    currentServers.slice(cursor, options.forceMedia ? cursor + batchSize : currentServers.length).map((server) => server.id)
+                );
+                if (pendingIds.size) {
+                    setServers((current) => current.map((server) => pendingIds.has(server.id) ? { ...server, status: 'updating', latency: 0 } : server));
+                }
                 const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia), cursor }) });
                 if (!res.ok) throw new Error('测速接口异常');
                 updatedData = await res.json();
@@ -625,7 +632,7 @@ const App = () => {
         const savedUpdatedAt = await syncToCloud(updatedServers, iconLib, telegramForm, newServer ? { addServerOnConflict: newServer } : {});
         const serversToPing = newServer ? [...servers.filter(server => server.id !== newServer.id), newServer] : updatedServers;
         setIsAddModalOpen(false); resetServerForm(); setActiveTab('cards');
-        await manualPing(serversToPing, savedUpdatedAt);
+        await manualPing(serversToPing, savedUpdatedAt, { forceMedia: true });
         } catch(e) {
             console.error('保存服务器失败', e);
             alert(e.message || '服务器保存失败，请稍后重试');

@@ -251,15 +251,33 @@
       }
   },
 
+  async mapWithConcurrency(items, limit, mapper) {
+      const list = Array.isArray(items) ? items : [];
+      const concurrency = Math.max(1, Math.min(Number(limit) || 1, list.length || 1));
+      const results = new Array(list.length);
+      let nextIndex = 0;
+      const workers = Array.from({ length: concurrency }, async () => {
+          while (nextIndex < list.length) {
+              const currentIndex = nextIndex;
+              nextIndex += 1;
+              results[currentIndex] = await mapper(list[currentIndex], currentIndex);
+          }
+      });
+      await Promise.all(workers);
+      return results;
+  },
+
   async runProbeLogic(env, config, options = {}) {
       if (!config || !config.servers || config.servers.length === 0) return config;
       const forceMedia = Boolean(options.forceMedia);
-      const batchSize = forceMedia ? 4 : config.servers.length;
+      const concurrencyLimit = Math.max(1, Number(this.PROBE_CONCURRENCY_LIMIT) || 4);
+      const batchSize = forceMedia ? concurrencyLimit : config.servers.length;
       const cursor = forceMedia ? Math.max(0, Number(options.cursor) || 0) : 0;
       const batchEnd = Math.min(config.servers.length, cursor + batchSize);
       const batchIds = new Set(config.servers.slice(cursor, batchEnd).map((s) => s.id));
+      const probeTargets = config.servers.filter((s) => batchIds.has(s.id));
 
-      const probePromises = config.servers.filter((s) => batchIds.has(s.id)).map(async (s) => {
+      const probedServers = await this.mapWithConcurrency(probeTargets, concurrencyLimit, async (s) => {
           const previousStatus = s.status;
           s.totalChecks = (s.totalChecks || 0) + 1;
           s.history = this.normalizeHistory(s.history, s.lastCheck);
@@ -314,7 +332,6 @@
           s.previousStatus = previousStatus; return s;
       });
 
-      const probedServers = await Promise.all(probePromises);
       const probedById = new Map(probedServers.map((s) => [s.id, s]));
       const latestConfig = await this.loadConfig(env);
       const latestById = new Map(latestConfig.servers.map((s) => [s.id, s]));
@@ -345,7 +362,7 @@
                       shouldSendOffline
                   });
               }
-              if (telegramEnabled && oldStatus === 'offline' && mergedServer.status === 'offline' && shouldSendOffline) {
+              if (telegramEnabled && mergedServer.status === 'offline' && shouldSendOffline) {
                   notifyQueue.push({ message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status), kind: 'offline', serverId: mergedServer.id, lastCheck: mergedServer.lastCheck });
               } else if (telegramEnabled && oldStatus === 'offline' && mergedServer.status === 'online' && previouslySaved.offlineAlertSentAt) {
                   notifyQueue.push({ message: this.buildStatusMessage({ ...mergedServer, offlineSince: previouslySaved.offlineSince || mergedServer.offlineSince }, oldStatus, mergedServer.status), kind: 'online' });
@@ -358,7 +375,7 @@
           mergedConfig.hasMore = batchEnd < baseConfig.servers.length;
       }
       const keepAliveTargets = forceMedia ? mergedConfig.servers.filter((server) => batchIds.has(server.id)) : mergedConfig.servers;
-      const keepAliveResults = await Promise.all(keepAliveTargets.map((server) => this.refreshKeepAliveIfNeeded(server)));
+      const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server));
       for (const result of keepAliveResults) {
           if (!result || !result.touched) continue;
           const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
