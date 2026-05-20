@@ -36,6 +36,7 @@ const App = () => {
     const [keepAliveForm, setKeepAliveForm] = useState({ enabled: false, periodDays: '', alertDays: '' });
     const [quickImportText, setQuickImportText] = useState('');
     const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
+    const [isTestingTelegram, setIsTestingTelegram] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('cards');
     const [notifyEnabled, setNotifyEnabled] = useState(false);
@@ -61,6 +62,7 @@ const App = () => {
     const keepAliveSectionRef = useRef(null);
     const configRevisionRef = useRef('');
     const configUpdatedAtRef = useRef(0);
+    const isRefreshingRef = useRef(false);
 
     // API 调用封装
     const apiFetch = async (path, options = {}) => {
@@ -72,6 +74,7 @@ const App = () => {
 
     const fetchConfigData = async (options = {}) => {
         try {
+            if (options.skipDuringRefresh && isRefreshingRef.current) return;
             const res = await apiFetch('/api/config', { cache: 'no-store' });
             if (res.status === 401 || res.status === 403) {
                 if (options.silentAuth) return;
@@ -91,6 +94,7 @@ const App = () => {
                 return;
             }
             const data = await res.json();
+            if (options.skipDuringRefresh && isRefreshingRef.current) return;
             setServers(Array.isArray(data.servers) ? data.servers : []);
             const nextUpdatedAt = Number(data.updatedAt) || 0;
             const nextRevision = data.revision || '';
@@ -112,7 +116,7 @@ const App = () => {
     useEffect(() => {
         const timer = setInterval(() => {
             if (document.visibilityState === 'visible') {
-                fetchConfigData({ skipUpdateCheck: true, silentAuth: true });
+                fetchConfigData({ skipUpdateCheck: true, silentAuth: true, skipDuringRefresh: true });
             }
         }, 60 * 1000);
         return () => clearInterval(timer);
@@ -205,6 +209,7 @@ const App = () => {
 
     const manualPing = async (currentServers = servers, requestUpdatedAt = configUpdatedAt, options = {}) => {
         if (isRefreshing || !currentServers.length) return;
+        isRefreshingRef.current = true;
         setIsRefreshing(true);
         try {
             let cursor = 0;
@@ -243,6 +248,7 @@ const App = () => {
         } catch(e) {
             alert("测速接口异常");
         } finally {
+            isRefreshingRef.current = false;
             setIsRefreshing(false);
         }
     };
@@ -627,12 +633,12 @@ const App = () => {
                 const previousFallbackUrls = Array.isArray(server.fallbackUrls) ? server.fallbackUrls : [];
                 const fallbackChanged = JSON.stringify(previousFallbackUrls) !== JSON.stringify(cleanFallbackUrls);
                 const urlChanged = server.url !== finalUrl || fallbackChanged;
-                return { ...server, name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, status: urlChanged ? 'updating' : server.status, latency: urlChanged ? 0 : server.latency, mediaStats: buildMediaStats(server) };
+                return { ...server, name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, status: urlChanged ? 'updating' : server.status, latency: urlChanged ? 0 : server.latency, consecutiveFailures: urlChanged ? 0 : (Number(server.consecutiveFailures) || 0), mediaStats: buildMediaStats(server) };
             });
         } else {
             newServer = {
                 id: Date.now(), name: addForm.name, url: finalUrl, fallbackUrls: cleanFallbackUrls, customIcon: null, status: 'updating',
-                totalChecks: 0, successfulChecks: 0, uptime: "0.0", latency: 0, lastCheck: 0, history: [], mediaStats: buildMediaStats(null)
+                totalChecks: 0, successfulChecks: 0, uptime: "0.0", latency: 0, lastCheck: 0, consecutiveFailures: 0, history: [], mediaStats: buildMediaStats(null)
             };
             updatedServers = [...servers, newServer];
         }
@@ -657,6 +663,29 @@ const App = () => {
             setNotifyEnabled(nextTelegram.enabled && nextTelegram.botToken && nextTelegram.chatId);
             alert("Telegram 配置已保存");
         } catch(e) { alert("Telegram 配置保存失败"); }
+    };
+
+    const handleTestTelegram = async () => {
+        const nextTelegram = { enabled: Boolean(telegramForm.enabled), botToken: telegramForm.botToken.trim(), chatId: telegramForm.chatId.trim() };
+        if (!nextTelegram.enabled || !nextTelegram.botToken || !nextTelegram.chatId) {
+            alert('请先启用并填写 Bot Token 和 Chat ID');
+            return;
+        }
+        setIsTestingTelegram(true);
+        try {
+            const r = await apiFetch('/api/telegram/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ telegram: nextTelegram })
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.ok) throw new Error(data.error || '测试通知发送失败');
+            alert('测试通知已发送，请检查 Telegram 是否收到消息');
+        } catch(e) {
+            alert('测试通知发送失败：' + (e.message || '请检查 Bot Token / Chat ID'));
+        } finally {
+            setIsTestingTelegram(false);
+        }
     };
 
     const handleSyncIcons = async () => {
@@ -1230,7 +1259,12 @@ const App = () => {
                                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">Chat ID</label>
                                             <input type="text" value={telegramForm.chatId} onChange={e => setTelegramForm({...telegramForm, chatId: e.target.value})} placeholder="填写接收通知的 Chat ID" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
                                         </div>
-                                        <button onClick={handleSaveTelegram} className="w-full mt-2 py-2.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold text-sm rounded-xl transition-colors border border-emerald-200">应用 TG 配置</button>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                                            <button onClick={handleSaveTelegram} className="py-2.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold text-sm rounded-xl transition-colors border border-emerald-200">应用 TG 配置</button>
+                                            <button onClick={handleTestTelegram} disabled={isTestingTelegram} className="py-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-60 font-bold text-sm rounded-xl transition-colors border border-blue-200">
+                                                {isTestingTelegram ? '发送中...' : '发送测试通知'}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                                 </div>

@@ -150,6 +150,20 @@
       }
     }
 
+    if (url.pathname === '/api/telegram/test' && request.method === 'POST') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+
+      const body = await request.json().catch(() => ({}));
+      const currentConfig = await this.loadConfig(env);
+      const testConfig = this.sanitizeConfig({
+          ...currentConfig,
+          telegram: body.telegram && typeof body.telegram === 'object' ? body.telegram : currentConfig.telegram
+      });
+      const result = await this.testTelegram(env, testConfig);
+      return this.json(result, result.ok ? 200 : 400);
+    }
+
     if (url.pathname === '/api/fetch-icons') {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;

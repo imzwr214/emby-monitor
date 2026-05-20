@@ -287,6 +287,8 @@
           const needsMediaRefresh = forceMedia || !s.mediaStats || !Number(s.mediaStats.lastCheck);
 
           if (!probeTargets.length) {
+              s.consecutiveFailures = Math.max(Number(s.consecutiveFailures) || 0, Number(this.OFFLINE_CONFIRMATION_THRESHOLD) || 2);
+              s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
               s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
               s.addressProbeResults = [];
               if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
@@ -317,9 +319,19 @@
           s.addressProbeResults = addressProbeResults;
 
           if (isAlive) {
-              s.successfulChecks = (s.successfulChecks || 0) + 1; s.status = 'online'; s.latency = finalLatency; s.history.push({ status: 'online', time: checkedAt, latency: finalLatency });
+              s.consecutiveFailures = 0; s.firstFailureAt = 0; s.successfulChecks = (s.successfulChecks || 0) + 1; s.status = 'online'; s.latency = finalLatency; s.history.push({ status: 'online', time: checkedAt, latency: finalLatency });
           } else {
-              s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
+              s.consecutiveFailures = (Number(s.consecutiveFailures) || 0) + 1;
+              s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
+              const failureWindowMs = checkedAt - s.firstFailureAt;
+              const shouldConfirmOffline = previousStatus === 'offline' || (s.consecutiveFailures >= (Number(this.OFFLINE_CONFIRMATION_THRESHOLD) || 3) && failureWindowMs >= (Number(this.OFFLINE_CONFIRMATION_WINDOW_MS) || 15 * 60 * 1000));
+              if (shouldConfirmOffline) {
+                  s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
+              } else {
+                  s.totalChecks = Math.max(0, (s.totalChecks || 0) - 1);
+                  s.status = previousStatus === 'online' ? 'online' : 'unknown';
+                  s.latency = Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0;
+              }
           }
 
           if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
@@ -331,6 +343,21 @@
           s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
           s.previousStatus = previousStatus; return s;
       });
+
+      const suppressProbeFailures = !forceMedia && (() => {
+          const previousOnlineTargets = probedServers.filter((server) => server && server.previousStatus === 'online');
+          if (previousOnlineTargets.length < 3) return false;
+          const failedOnlineTargets = previousOnlineTargets.filter((server) => server.status !== 'online');
+          const ratio = failedOnlineTargets.length / previousOnlineTargets.length;
+          return ratio >= (Number(this.PROBE_FAILURE_SUPPRESSION_RATIO) || 0.5);
+      })();
+      if (suppressProbeFailures) {
+          console.log('[probe] suppressing broad probe failure run', {
+              targets: probedServers.length,
+              previousOnline: probedServers.filter((server) => server && server.previousStatus === 'online').length,
+              failedPreviousOnline: probedServers.filter((server) => server && server.previousStatus === 'online' && server.status !== 'online').length
+          });
+      }
 
       const probedById = new Map(probedServers.map((s) => [s.id, s]));
       const latestConfig = await this.loadConfig(env);
@@ -344,7 +371,10 @@
               const probed = probedById.get(latest.id);
               if (!probed || probed.url !== latest.url) return latest;
               const previouslySaved = latestById.get(latest.id) || latest;
-              const mergedServer = { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, addressProbeResults: probed.addressProbeResults || [], history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
+              const shouldPreserveBroadFailure = suppressProbeFailures && previouslySaved.status === 'online' && probed.status !== 'online';
+              const mergedServer = shouldPreserveBroadFailure
+                  ? { ...latest, lastCheck: probed.lastCheck, consecutiveFailures: probed.consecutiveFailures || 0, firstFailureAt: probed.firstFailureAt || 0, addressProbeResults: probed.addressProbeResults || [], mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats }
+                  : { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, consecutiveFailures: probed.consecutiveFailures || 0, firstFailureAt: probed.firstFailureAt || 0, addressProbeResults: probed.addressProbeResults || [], history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
               const oldStatus = previouslySaved.url === latest.url && JSON.stringify(previouslySaved.fallbackUrls || []) === JSON.stringify(latest.fallbackUrls || []) ? previouslySaved.status : probed.previousStatus;
               const telegramEnabled = this.isTelegramEnabled(env, baseConfig);
               const shouldSendOffline = this.shouldSendOfflineAlert(mergedServer);

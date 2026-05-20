@@ -46,6 +46,37 @@
       return false;
   },
 
+  async testTelegram(env, config = {}) {
+      const tg = this.currentTelegramConfig(env, config);
+      if (!tg.enabled || !tg.botToken || !tg.chatId) {
+          return { ok: false, error: 'Telegram 配置未启用或不完整' };
+      }
+      const endpoint = 'https://api.telegram.org/bot' + tg.botToken + '/sendMessage';
+      const text = [
+          'Emby 探针测试通知',
+          '',
+          '这是一条手动发送的 Telegram 测试消息。',
+          '发送时间：' + this.formatNotifyTime(Date.now())
+      ].join('\n');
+      try {
+          const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: tg.chatId, text, disable_web_page_preview: true })
+          });
+          const detail = await response.text().catch(() => '');
+          if (!response.ok) {
+              console.log('[notify] telegram test failed', { status: response.status, detail: detail.slice(0, 300) });
+              return { ok: false, status: response.status, error: detail.slice(0, 300) || 'Telegram API 返回失败' };
+          }
+          return { ok: true, status: response.status };
+      } catch(e) {
+          const message = e && e.message ? e.message : String(e);
+          console.log('[notify] telegram test error', message);
+          return { ok: false, error: message || 'Telegram 测试发送失败' };
+      }
+  },
+
   bytesToBase64(bytes) {
       if (!bytes || typeof bytes.length !== 'number') return '';
       if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');

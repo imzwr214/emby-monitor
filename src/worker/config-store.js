@@ -65,6 +65,8 @@
                       uptime: typeof s.uptime === 'string' ? s.uptime : '0.0', latency: Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0,
                       lastCheck: Number.isFinite(Number(s.lastCheck)) ? Number(s.lastCheck) : 0, offlineSince: Number.isFinite(Number(s.offlineSince)) ? Math.max(0, Number(s.offlineSince)) : 0,
                       offlineAlertSentAt: Number.isFinite(Number(s.offlineAlertSentAt)) ? Math.max(0, Number(s.offlineAlertSentAt)) : 0,
+                      consecutiveFailures: Number.isFinite(Number(s.consecutiveFailures)) ? Math.max(0, Number(s.consecutiveFailures)) : 0,
+                      firstFailureAt: Number.isFinite(Number(s.firstFailureAt)) ? Math.max(0, Number(s.firstFailureAt)) : 0,
                       addressProbeResults: this.normalizeAddressProbeResults(s.addressProbeResults),
                       history: this.normalizeHistory(s.history, s.lastCheck), mediaStats: this.normalizeMediaStats(s.mediaStats)
                   };
