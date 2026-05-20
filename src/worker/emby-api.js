@@ -72,14 +72,8 @@
       if (!userId) throw new Error('未获取到媒体库 UserId');
       const bases = this.getEmbyApiBases(server);
       let lastError = '最后播放时间读取失败';
-      const deepScan = Boolean(options.deepScan);
       const includeItem = Boolean(options.includeItem);
-      const extractItems = (data) => {
-          if (!data) return [];
-          if (Array.isArray(data)) return data;
-          if (Array.isArray(data.Items)) return data.Items;
-          return [];
-      };
+
       const parseEmbyDate = (value) => {
           const text = String(value || '').trim();
           if (!text) return 0;
@@ -92,80 +86,59 @@
           const played = item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : (item.DatePlayed || '');
           return parseEmbyDate(played);
       };
-      const quickQueryPlans = [
-          {
-              path: '/Items/Latest',
-              variants: [
-                  ['IsPlayed=true', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
-                  ['Filters=IsPlayed', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video']
-              ]
-          }
-      ];
-      const deepQueryPlans = [
-          {
-              path: '/Items',
-              variants: [
-                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'IsPlayed=true', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
-                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'Filters=IsPlayed', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
-                  ['SortBy=DatePlayed', 'SortOrder=Descending', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video'],
-                  ['SortBy=DateLastMediaAdded', 'SortOrder=Descending', 'GroupItems=false', 'EnableUserData=true', 'Fields=UserData,DatePlayed', 'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video']
-              ]
-          }
-      ];
       let latestPlayedAt = 0;
       let latestItem = null;
       for (const base of bases) {
-          const plans = deepScan ? [...quickQueryPlans, ...deepQueryPlans] : quickQueryPlans;
-          for (const plan of plans) {
-              const pageLimit = plan.path === '/Items/Latest' ? 10 : 50;
-              const maxScan = plan.path === '/Items/Latest' ? 10 : 50;
-              for (const variant of plan.variants) {
-                  for (let startIndex = 0; startIndex < maxScan; startIndex += pageLimit) {
-                      try {
-                          const query = [
-                              'StartIndex=' + startIndex,
-                              'Limit=' + pageLimit,
-                              ...variant,
-                              ...(plan.path === '/Items' ? ['Recursive=true'] : [])
-                          ].join('&');
-                          const response = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + plan.path + '?' + query + '&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
-                          if (!response.ok) {
-                              const detail = await this.readShortResponse(response);
-                              lastError = response.status === 401 ? '媒体库 Token 失效' : '最后播放时间读取失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
-                              break;
+          try {
+              const query = [
+                  'SortBy=DatePlayed',
+                  'SortOrder=Descending',
+                  'Recursive=true',
+                  'GroupItems=false',
+                  'EnableUserData=true',
+                  'Fields=UserData,DatePlayed',
+                  'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video',
+                  'Limit=10'
+              ].join('&');
+
+              const response = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items?' + query + '&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
+
+              if (!response.ok) {
+                  const detail = await this.readShortResponse(response);
+                  lastError = response.status === 401 ? '媒体库 Token 失效' : '最后播放时间读取失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
+                  continue;
+              }
+
+              const data = await response.json();
+              const items = data && Array.isArray(data.Items) ? data.Items : (Array.isArray(data) ? data : []);
+
+              for (const item of items) {
+                  const playedAt = extractPlayedAt(item);
+                  if (playedAt > latestPlayedAt) {
+                      latestPlayedAt = playedAt;
+                      latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
+                  }
+              }
+
+              if (!latestPlayedAt) {
+                  const resumeResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Limit=10&Recursive=true&EnableUserData=true&Fields=UserData,DatePlayed&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 5000);
+                  if (resumeResponse.ok) {
+                      const resumeData = await resumeResponse.json();
+                      const resumeItems = resumeData && Array.isArray(resumeData.Items) ? resumeData.Items : (Array.isArray(resumeData) ? resumeData : []);
+                      for (const item of resumeItems) {
+                          const playedAt = extractPlayedAt(item);
+                          if (playedAt > latestPlayedAt) {
+                              latestPlayedAt = playedAt;
+                              latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
                           }
-                          const data = await response.json();
-                          const items = extractItems(data);
-                          const totalCount = Number(data && data.TotalRecordCount);
-                          const hasTotalCount = Number.isFinite(totalCount) && totalCount > 0;
-                          for (const item of items) {
-                              const playedAt = extractPlayedAt(item);
-                              if (playedAt > latestPlayedAt) {
-                                  latestPlayedAt = playedAt;
-                                  latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
-                              }
-                              if (!playedAt && item && item.Id) {
-                                  try {
-                                      const detailResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(item.Id) + '?EnableUserData=true&Fields=UserData,DatePlayed&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 5000);
-                                      if (detailResponse.ok) {
-                                          const detail = await detailResponse.json();
-                                          const detailPlayedAt = extractPlayedAt(detail);
-                                          if (detailPlayedAt > latestPlayedAt) {
-                                              latestPlayedAt = detailPlayedAt;
-                                              latestItem = { id: detail.Id || item.Id || '', name: detail.Name || item.Name || '', type: detail.Type || item.Type || '' };
-                                          }
-                                      }
-                                  } catch(e) {}
-                              }
-                          }
-                          if (items.length < pageLimit) break;
-                          if (hasTotalCount && startIndex + pageLimit >= totalCount) break;
-                      } catch(e) {
-                          lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
-                          break;
                       }
                   }
               }
+
+              if (latestPlayedAt > 0) break;
+
+          } catch(e) {
+              lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
           }
       }
       if (latestPlayedAt) return includeItem ? { lastPlayedAt: latestPlayedAt, item: latestItem } : latestPlayedAt;
