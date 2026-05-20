@@ -220,7 +220,15 @@ const App = () => {
                 const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia), cursor }) });
                 if (!res.ok) throw new Error('测速接口异常');
                 updatedData = await res.json();
-                setServers(updatedData.servers);
+                const futureIds = new Set(
+                    options.forceMedia && updatedData.hasMore
+                        ? currentServers.slice(Number(updatedData.nextCursor) || 0).map((server) => server.id)
+                        : []
+                );
+                setServers(Array.isArray(updatedData.servers)
+                    ? updatedData.servers.map((server) => futureIds.has(server.id) ? { ...server, status: 'updating', latency: 0 } : server)
+                    : []
+                );
                 setIconLib(updatedData.icons);
                 setTelegramForm(updatedData.telegram || telegramForm);
                 const nextUpdatedAt = Number(updatedData.updatedAt) || configUpdatedAtRef.current;
