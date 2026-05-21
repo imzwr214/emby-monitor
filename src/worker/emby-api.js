@@ -121,7 +121,7 @@
                   }
               }
 
-              if (!latestPlayedAt) {
+              try {
                   const resumeResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Limit=10&Recursive=true&EnableUserData=true&Fields=UserData,DatePlayed&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 5000);
                   if (resumeResponse.ok) {
                       const resumeData = await resumeResponse.json();
@@ -134,7 +134,7 @@
                           }
                       }
                   }
-              }
+              } catch(e) {}
 
               if (latestPlayedAt > 0) break;
 

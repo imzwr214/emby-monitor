@@ -10,6 +10,7 @@ const HTML_CONTENT = "<!--\n  前端 HTML 外壳。\n\n  负责页面基础 head
 export default {
   APP_VERSION: "2026.05.22",
   APP_UPDATE_NOTES: [
+      "修复未看完内容的 Resume 记录不会覆盖旧播放时间的问题",
       "修复 Emby 上次观看时间在已看完内容后冻结不更新的问题",
       "新增单体测速接口，编辑或新增服务器后只刷新目标服务器",
       "引入分批游标探测，彻底解决 Cloudflare Worker 子请求限制问题",
@@ -1452,7 +1453,7 @@ export default {
                     }
                 }
 
-                if (!latestPlayedAt) {
+                try {
                     const resumeResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Limit=10&Recursive=true&EnableUserData=true&Fields=UserData,DatePlayed&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 5000);
                     if (resumeResponse.ok) {
                         const resumeData = await resumeResponse.json();
@@ -1465,7 +1466,7 @@ export default {
                             }
                         }
                     }
-                }
+                } catch(e) {}
 
                 if (latestPlayedAt > 0) break;
 
