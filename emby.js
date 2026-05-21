@@ -10,7 +10,6 @@ const HTML_CONTENT = "<!--\n  前端 HTML 外壳。\n\n  负责页面基础 head
 export default {
   APP_VERSION: "2026.05.22",
   APP_UPDATE_NOTES: [
-      "修复 Emby 上次观看时间在已看完内容后冻结不更新的问题",
       "新增单体测速接口，编辑或新增服务器后只刷新目标服务器",
       "引入分批游标探测，彻底解决 Cloudflare Worker 子请求限制问题",
       "修复 Emby 最后播放时间读取逻辑，改用 DatePlayed 排序确保准确",
@@ -1428,7 +1427,6 @@ export default {
                     'GroupItems=false',
                     'EnableUserData=true',
                     'Fields=UserData,DatePlayed',
-                    'Filters=IsPlayed',
                     'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video',
                     'Limit=10'
                 ].join('&');
