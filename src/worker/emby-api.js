@@ -107,40 +107,40 @@
               if (!response.ok) {
                   const detail = await this.readShortResponse(response);
                   lastError = response.status === 401 ? '媒体库 Token 失效' : '最后播放时间读取失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
-              } else {
-                  const data = await response.json();
-                  const items = data && Array.isArray(data.Items) ? data.Items : (Array.isArray(data) ? data : []);
+                  continue;
+              }
 
-                  for (const item of items) {
-                      const playedAt = extractPlayedAt(item);
-                      if (playedAt > latestPlayedAt) {
-                          latestPlayedAt = playedAt;
-                          latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
-                      }
+              const data = await response.json();
+              const items = data && Array.isArray(data.Items) ? data.Items : (Array.isArray(data) ? data : []);
+
+              for (const item of items) {
+                  const playedAt = extractPlayedAt(item);
+                  if (playedAt > latestPlayedAt) {
+                      latestPlayedAt = playedAt;
+                      latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
                   }
               }
+
+              try {
+                  const resumeResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Limit=10&Recursive=true&EnableUserData=true&Fields=UserData,DatePlayed&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 5000);
+                  if (resumeResponse.ok) {
+                      const resumeData = await resumeResponse.json();
+                      const resumeItems = resumeData && Array.isArray(resumeData.Items) ? resumeData.Items : (Array.isArray(resumeData) ? resumeData : []);
+                      for (const item of resumeItems) {
+                          const playedAt = extractPlayedAt(item);
+                          if (playedAt > latestPlayedAt) {
+                              latestPlayedAt = playedAt;
+                              latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
+                          }
+                      }
+                  }
+              } catch(e) {}
+
+              if (latestPlayedAt > 0) break;
+
           } catch(e) {
               lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
           }
-
-          try {
-              const resumeResponse = await this.fetchWithTimeout(base + '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Limit=10&Recursive=true&EnableUserData=true&Fields=UserData,DatePlayed&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 5000);
-              if (resumeResponse.ok) {
-                  const resumeData = await resumeResponse.json();
-                  const resumeItems = resumeData && Array.isArray(resumeData.Items) ? resumeData.Items : (Array.isArray(resumeData) ? resumeData : []);
-                  for (const item of resumeItems) {
-                      const playedAt = extractPlayedAt(item);
-                      if (playedAt > latestPlayedAt) {
-                          latestPlayedAt = playedAt;
-                          latestItem = { id: item.Id || '', name: item.Name || '', type: item.Type || '' };
-                      }
-                  }
-              }
-          } catch(e) {
-              if (!latestPlayedAt) lastError = e.name === 'AbortError' ? '最后播放进度读取超时' : (e.message || '最后播放进度读取失败');
-          }
-
-          if (latestPlayedAt > 0) break;
       }
       if (latestPlayedAt) return includeItem ? { lastPlayedAt: latestPlayedAt, item: latestItem } : latestPlayedAt;
       throw new Error(lastError);
