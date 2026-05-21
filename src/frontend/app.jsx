@@ -678,6 +678,7 @@ const App = () => {
                 yesterdayCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.yesterdayCounts || null) : null,
                 dailyDelta: mediaForm.enabled && !credentialsChanged ? (previousMedia.dailyDelta || null) : null,
                 dailyKey: mediaForm.enabled && !credentialsChanged ? (previousMedia.dailyKey || '') : '',
+                lastPlayed: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayed || null) : null,
                 keepAlive: {
                     enabled: Boolean(keepAliveForm.enabled),
                     periodDays: keepAliveForm.enabled ? keepAlivePeriodDays : 30,
