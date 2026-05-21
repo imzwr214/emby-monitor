@@ -97,6 +97,7 @@
                   'GroupItems=false',
                   'EnableUserData=true',
                   'Fields=UserData,DatePlayed',
+                  'Filters=IsPlayed',
                   'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video',
                   'Limit=10'
               ].join('&');

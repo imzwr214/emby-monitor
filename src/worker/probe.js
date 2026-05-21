@@ -277,6 +277,178 @@
       return results;
   },
 
+  async probeServerRuntimeState(env, server, forceMedia = false) {
+      const cleanServers = this.sanitizeConfig({ servers: [server] }).servers;
+      let s = cleanServers[0] || { ...server };
+      const previousStatus = s.status;
+      s.totalChecks = (s.totalChecks || 0) + 1;
+      s.history = this.normalizeHistory(s.history, s.lastCheck);
+      const checkedAt = Date.now();
+
+      const probeTargets = this.getProbeTargets(s);
+      const needsMediaRefresh = Boolean(forceMedia) || !s.mediaStats || !Number(s.mediaStats.lastCheck);
+
+      if (!probeTargets.length) {
+          s.consecutiveFailures = Math.max(Number(s.consecutiveFailures) || 0, Number(this.OFFLINE_CONFIRMATION_THRESHOLD) || 2);
+          s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
+          s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
+          s.addressProbeResults = [];
+          if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
+          s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
+          s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
+          await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
+          const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
+          s = lastPlayedResult.server;
+          s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
+          s.previousStatus = previousStatus; return s;
+      }
+
+      let isAlive = false;
+      let finalLatency = 0;
+      let addressProbeResults = [];
+
+      try {
+          const result = await this.probeEmbyServerWithFallbacks(s);
+          isAlive = result.ok; finalLatency = result.latency; addressProbeResults = result.addressProbeResults || [];
+      } catch(e) { isAlive = false; }
+      if (!isAlive) {
+          const loginState = await this.verifyWithLoginState(s);
+          if (loginState && loginState.ok) {
+              isAlive = true;
+              finalLatency = Number(loginState.latency) || finalLatency;
+          }
+      }
+      s.addressProbeResults = addressProbeResults;
+
+      if (isAlive) {
+          s.consecutiveFailures = 0; s.firstFailureAt = 0; s.successfulChecks = (s.successfulChecks || 0) + 1; s.status = 'online'; s.latency = finalLatency; s.history.push({ status: 'online', time: checkedAt, latency: finalLatency });
+      } else {
+          s.consecutiveFailures = (Number(s.consecutiveFailures) || 0) + 1;
+          s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
+          const failureWindowMs = checkedAt - s.firstFailureAt;
+          const shouldConfirmOffline = previousStatus === 'offline' || (s.consecutiveFailures >= 1 && failureWindowMs >= (Number(this.OFFLINE_CONFIRMATION_WINDOW_MS) || 3 * 60 * 1000));
+          if (shouldConfirmOffline) {
+              s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
+          } else {
+              s.totalChecks = Math.max(0, (s.totalChecks || 0) - 1);
+              s.status = previousStatus === 'online' ? 'online' : 'unknown';
+              s.latency = Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0;
+          }
+      }
+
+      if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
+      s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
+      s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
+      await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
+      const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
+      s = lastPlayedResult.server;
+      s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
+      s.previousStatus = previousStatus; return s;
+  },
+
+  mergeProbedRuntimeFields(latest, probed) {
+      if (!probed) return latest;
+      return {
+          ...latest,
+          status: probed.status,
+          totalChecks: probed.totalChecks,
+          successfulChecks: probed.successfulChecks,
+          uptime: probed.uptime,
+          latency: probed.latency,
+          lastCheck: probed.lastCheck,
+          offlineSince: probed.offlineSince,
+          offlineAlertSentAt: probed.offlineAlertSentAt,
+          consecutiveFailures: probed.consecutiveFailures || 0,
+          firstFailureAt: probed.firstFailureAt || 0,
+          addressProbeResults: probed.addressProbeResults || [],
+          history: probed.history,
+          mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats
+      };
+  },
+
+  hasSameProbeConfig(a, b) {
+      return Boolean(a && b && a.url === b.url && JSON.stringify(a.fallbackUrls || []) === JSON.stringify(b.fallbackUrls || []));
+  },
+
+  async runSingleProbeLogic(env, config, serverId, options = {}) {
+      const cleanConfig = this.sanitizeConfig(config);
+      const targetId = String(serverId || '');
+      const target = cleanConfig.servers.find((server) => String(server.id) === targetId);
+      if (!target) return { ok: false, status: 404, error: 'Server not found' };
+
+      const probeStartedAt = Date.now();
+      const forceMedia = Boolean(options.forceMedia);
+      await this.appendRuntimeLog(env, 'info', 'probe.single.start', '单体测速开始', { source: 'manual', forceMedia, serverId: target.id, serverName: target.name }, { config: cleanConfig });
+      const probed = await this.probeServerRuntimeState(env, target, forceMedia);
+
+      const latestConfig = await this.loadConfig(env);
+      const baseConfig = this.sanitizeConfig(latestConfig);
+      const latestTarget = baseConfig.servers.find((server) => String(server.id) === targetId);
+      if (!latestTarget) return { ok: false, status: 404, error: 'Server not found' };
+
+      const notifyQueue = [];
+      let mergedServer = this.hasSameProbeConfig(probed, latestTarget) ? this.mergeProbedRuntimeFields(latestTarget, probed) : latestTarget;
+      const oldStatus = this.hasSameProbeConfig(probed, latestTarget) ? probed.previousStatus : latestTarget.status;
+      const telegramEnabled = this.isTelegramEnabled(env, baseConfig);
+      if (telegramEnabled && mergedServer.status === 'offline' && this.shouldSendOfflineAlert(mergedServer)) {
+          notifyQueue.push({ message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status), kind: 'offline', serverId: mergedServer.id, lastCheck: mergedServer.lastCheck });
+      } else if (telegramEnabled && oldStatus === 'offline' && mergedServer.status === 'online' && latestTarget.offlineAlertSentAt) {
+          notifyQueue.push({ message: this.buildStatusMessage({ ...mergedServer, offlineSince: latestTarget.offlineSince || mergedServer.offlineSince }, oldStatus, mergedServer.status), kind: 'online' });
+      }
+
+      const keepAliveResult = await this.refreshKeepAliveIfNeeded(mergedServer);
+      if (keepAliveResult && keepAliveResult.touched) mergedServer = keepAliveResult.server;
+      if (keepAliveResult && keepAliveResult.alert && telegramEnabled) {
+          notifyQueue.push({ ...keepAliveResult.alert, kind: 'keepAlive' });
+      }
+
+      const sendResults = await Promise.all(notifyQueue.map((item) => this.sendTelegram(env, item.message, baseConfig)));
+      for (const [index, ok] of sendResults.entries()) {
+          const item = notifyQueue[index];
+          if (!ok || !item) continue;
+          if (item.kind === 'offline') {
+              mergedServer.offlineAlertSentAt = item.lastCheck;
+          } else if (item.kind === 'keepAlive' && mergedServer.mediaStats && mergedServer.mediaStats.keepAlive) {
+              mergedServer.mediaStats = { ...mergedServer.mediaStats, keepAlive: { ...mergedServer.mediaStats.keepAlive, alertSentAt: item.checkedAt || Date.now() } };
+          }
+      }
+
+      const configBeforeSave = this.sanitizeConfig(await this.loadConfig(env));
+      const targetBeforeSave = configBeforeSave.servers.find((server) => String(server.id) === targetId);
+      if (!targetBeforeSave) return { ok: false, status: 404, error: 'Server not found' };
+      const serverToSave = this.hasSameProbeConfig(mergedServer, targetBeforeSave) ? {
+          ...targetBeforeSave,
+          status: mergedServer.status,
+          totalChecks: mergedServer.totalChecks,
+          successfulChecks: mergedServer.successfulChecks,
+          uptime: mergedServer.uptime,
+          latency: mergedServer.latency,
+          lastCheck: mergedServer.lastCheck,
+          offlineSince: mergedServer.offlineSince,
+          offlineAlertSentAt: mergedServer.offlineAlertSentAt,
+          consecutiveFailures: mergedServer.consecutiveFailures || 0,
+          firstFailureAt: mergedServer.firstFailureAt || 0,
+          addressProbeResults: mergedServer.addressProbeResults || [],
+          history: mergedServer.history,
+          mediaStats: mergedServer.mediaStats
+      } : targetBeforeSave;
+      const mergedConfig = {
+          ...configBeforeSave,
+          servers: configBeforeSave.servers.map((server) => String(server.id) === targetId ? serverToSave : server)
+      };
+      const savedConfig = await this.saveConfig(env, mergedConfig);
+      const savedServer = savedConfig.servers.find((server) => String(server.id) === targetId) || mergedServer;
+      await this.appendRuntimeLog(env, 'info', 'probe.single.done', '单体测速完成', {
+          source: 'manual',
+          forceMedia,
+          elapsedMs: Date.now() - probeStartedAt,
+          notifyCount: notifyQueue.length,
+          notifySuccessCount: sendResults.filter(Boolean).length,
+          target: { id: savedServer.id, name: savedServer.name, previousStatus: probed.previousStatus, status: savedServer.status, latency: savedServer.latency, failures: savedServer.consecutiveFailures || 0 }
+      }, { config: savedConfig });
+      return { ok: true, config: savedConfig, server: savedServer };
+  },
+
   async runProbeLogic(env, config, options = {}) {
       if (!config || !config.servers || config.servers.length === 0) return config;
       const probeStartedAt = Date.now();
@@ -295,70 +467,7 @@
       await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers, targetCount: probeTargets.length }, { config });
 
       const probedServers = await this.mapWithConcurrency(probeTargets, concurrencyLimit, async (s) => {
-          const previousStatus = s.status;
-          s.totalChecks = (s.totalChecks || 0) + 1;
-          s.history = this.normalizeHistory(s.history, s.lastCheck);
-          const checkedAt = Date.now();
-
-          const probeTargets = this.getProbeTargets(s);
-          const needsMediaRefresh = forceMedia || !s.mediaStats || !Number(s.mediaStats.lastCheck);
-
-          if (!probeTargets.length) {
-              s.consecutiveFailures = Math.max(Number(s.consecutiveFailures) || 0, Number(this.OFFLINE_CONFIRMATION_THRESHOLD) || 2);
-              s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
-              s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
-              s.addressProbeResults = [];
-              if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
-              s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
-              s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-              await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
-              const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, forceMedia || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
-              s = lastPlayedResult.server;
-              s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
-              s.previousStatus = previousStatus; return s;
-          }
-
-          let isAlive = false;
-          let finalLatency = 0;
-          let addressProbeResults = [];
-
-          try {
-              const result = await this.probeEmbyServerWithFallbacks(s);
-              isAlive = result.ok; finalLatency = result.latency; addressProbeResults = result.addressProbeResults || [];
-          } catch(e) { isAlive = false; }
-          if (!isAlive) {
-              const loginState = await this.verifyWithLoginState(s);
-              if (loginState && loginState.ok) {
-                  isAlive = true;
-                  finalLatency = Number(loginState.latency) || finalLatency;
-              }
-          }
-          s.addressProbeResults = addressProbeResults;
-
-          if (isAlive) {
-              s.consecutiveFailures = 0; s.firstFailureAt = 0; s.successfulChecks = (s.successfulChecks || 0) + 1; s.status = 'online'; s.latency = finalLatency; s.history.push({ status: 'online', time: checkedAt, latency: finalLatency });
-          } else {
-              s.consecutiveFailures = (Number(s.consecutiveFailures) || 0) + 1;
-              s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
-              const failureWindowMs = checkedAt - s.firstFailureAt;
-              const shouldConfirmOffline = previousStatus === 'offline' || (s.consecutiveFailures >= 1 && failureWindowMs >= (Number(this.OFFLINE_CONFIRMATION_WINDOW_MS) || 3 * 60 * 1000));
-              if (shouldConfirmOffline) {
-                  s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
-              } else {
-                  s.totalChecks = Math.max(0, (s.totalChecks || 0) - 1);
-                  s.status = previousStatus === 'online' ? 'online' : 'unknown';
-                  s.latency = Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0;
-              }
-          }
-
-          if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
-          s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
-          s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-          await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
-          const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, forceMedia || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
-          s = lastPlayedResult.server;
-          s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
-          s.previousStatus = previousStatus; return s;
+          return this.probeServerRuntimeState(env, s, forceMedia);
       });
 
       const suppressProbeFailures = false; // 分批探测模式下禁用单批次大面积掉线防误报拦截
@@ -377,7 +486,7 @@
               let mergedServer = latest;
               let oldStatus = previouslySaved.status;
               if (probed && probed.url === latest.url) {
-                  mergedServer = { ...latest, status: probed.status, totalChecks: probed.totalChecks, successfulChecks: probed.successfulChecks, uptime: probed.uptime, latency: probed.latency, lastCheck: probed.lastCheck, offlineSince: probed.offlineSince, offlineAlertSentAt: probed.offlineAlertSentAt, consecutiveFailures: probed.consecutiveFailures || 0, firstFailureAt: probed.firstFailureAt || 0, addressProbeResults: probed.addressProbeResults || [], history: probed.history, mediaStats: probed.mediaStatsTouched ? probed.mediaStats : latest.mediaStats };
+                  mergedServer = this.mergeProbedRuntimeFields(latest, probed);
                   oldStatus = previouslySaved.url === latest.url && JSON.stringify(previouslySaved.fallbackUrls || []) === JSON.stringify(latest.fallbackUrls || []) ? previouslySaved.status : probed.previousStatus;
               }
               const telegramEnabled = this.isTelegramEnabled(env, baseConfig);

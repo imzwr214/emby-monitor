@@ -285,6 +285,38 @@ const App = () => {
         }
     };
 
+    const pingSingleServer = async (serverId, forceMedia = false) => {
+        if (!serverId) return;
+        setServers((current) => current.map((server) => String(server.id) === String(serverId) ? { ...server, status: 'updating', latency: 0 } : server));
+        try {
+            const res = await apiFetch('/api/ping-single', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ serverId, forceMedia: Boolean(forceMedia) })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.ok) throw new Error(data.error || '单体测速失败');
+            if (data.server) {
+                setServers((current) => current.map((server) => String(server.id) === String(serverId) ? data.server : server));
+            } else if (Array.isArray(data.servers)) {
+                setServers(data.servers);
+            }
+            if (data.icons) setIconLib(data.icons);
+            if (data.telegram) setTelegramForm(data.telegram);
+            if (data.logging) setLoggingEnabled(Boolean(data.logging.enabled));
+            const nextUpdatedAt = Number(data.updatedAt) || configUpdatedAtRef.current;
+            const nextRevision = data.revision || configRevisionRef.current;
+            setConfigUpdatedAt(nextUpdatedAt);
+            setConfigRevision(nextRevision);
+            configUpdatedAtRef.current = nextUpdatedAt;
+            configRevisionRef.current = nextRevision;
+            setNotifyEnabled(Boolean(data.notifyEnabled));
+        } catch(e) {
+            await fetchConfigData({ skipUpdateCheck: true, silentAuth: true });
+            showNotice(e.message || '单体测速失败');
+        }
+    };
+
     const getProxyImgSrc = (u) => {
         if (!u) return "";
         if (u.startsWith('data:')) return u;
@@ -675,10 +707,10 @@ const App = () => {
             updatedServers = [...servers, newServer];
         }
 
-        const savedUpdatedAt = await syncToCloud(updatedServers, iconLib, telegramForm, newServer ? { addServerOnConflict: newServer } : {});
-        const serversToPing = newServer ? [...servers.filter(server => server.id !== newServer.id), newServer] : updatedServers;
+        await syncToCloud(updatedServers, iconLib, telegramForm, newServer ? { addServerOnConflict: newServer } : {});
+        const targetServerId = newServer ? newServer.id : editingServerId;
         setIsAddModalOpen(false); resetServerForm(); setActiveTab('cards');
-        await manualPing(serversToPing, savedUpdatedAt, { forceMedia: true });
+        await pingSingleServer(targetServerId, true);
         } catch(e) {
             console.error('保存服务器失败', e);
             showNotice(e.message || '服务器保存失败，请稍后重试');

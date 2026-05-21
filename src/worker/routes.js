@@ -249,6 +249,20 @@
       return this.json({ ...updatedConfig, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
     }
 
+    if (url.pathname === '/api/ping-single' && request.method === 'POST') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+
+      const requestBody = await request.json().catch(() => ({}));
+      const serverId = requestBody.serverId;
+      if (serverId === undefined || serverId === null || serverId === '') return this.json({ ok: false, error: 'Missing serverId' }, 400);
+      const currentConfig = await this.loadConfig(env);
+      const result = await this.runSingleProbeLogic(env, currentConfig, serverId, { forceMedia: Boolean(requestBody.forceMedia) });
+      if (!result.ok) return this.json({ ok: false, error: result.error || 'Single ping failed' }, result.status || 500);
+      const updatedConfig = result.config;
+      return this.json({ ok: true, ...updatedConfig, server: result.server, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
+    }
+
     if (url.pathname === '/api/update/check' && request.method === 'GET') {
       const auth = this.requireStrictAdmin(request, env);
       if (auth) return auth;
