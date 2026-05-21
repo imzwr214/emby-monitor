@@ -62,11 +62,41 @@ const App = () => {
     const [cardShareLinks, setCardShareLinks] = useState({});
     const [generatingCardShareId, setGeneratingCardShareId] = useState(null);
     const [toastMessage, setToastMessage] = useState('');
+    const [systemDialog, setSystemDialog] = useState(null);
     const privacyMenuRef = useRef(null);
     const keepAliveSectionRef = useRef(null);
     const configRevisionRef = useRef('');
     const configUpdatedAtRef = useRef(0);
     const isRefreshingRef = useRef(false);
+    const dialogResolveRef = useRef(null);
+
+    const closeSystemDialog = (value) => {
+        const resolve = dialogResolveRef.current;
+        dialogResolveRef.current = null;
+        setSystemDialog(null);
+        if (resolve) resolve(value);
+    };
+
+    const showSystemDialog = (options) => new Promise((resolve) => {
+        dialogResolveRef.current = resolve;
+        setSystemDialog({
+            type: options.type || 'alert',
+            title: options.title || '系统提示',
+            message: options.message || '',
+            confirmText: options.confirmText || '知道了',
+            cancelText: options.cancelText || '取消',
+            inputValue: options.inputValue || '',
+            inputPlaceholder: options.inputPlaceholder || '',
+            tone: options.tone || 'info'
+        });
+    });
+
+    const showNotice = (message) => {
+        setToastMessage(String(message || '操作完成'));
+    };
+    const showAlert = (message, options = {}) => showSystemDialog({ ...options, type: 'alert', message });
+    const showConfirm = (message, options = {}) => showSystemDialog({ ...options, type: 'confirm', message, confirmText: options.confirmText || '确认' });
+    const showPrompt = (message, inputValue = '', options = {}) => showSystemDialog({ ...options, type: 'prompt', message, inputValue, confirmText: options.confirmText || '确认' });
 
     // API 调用封装
     const apiFetch = async (path, options = {}) => {
@@ -88,7 +118,7 @@ const App = () => {
                     setIsLoading(false);
                     return;
                 }
-                const token = prompt('请输入管理 Token');
+                const token = await showPrompt('请输入管理 Token', '', { title: '后台认证', inputPlaceholder: '管理 Token' });
                 if (token) {
                     localStorage.setItem('emby_admin_token', token);
                     return fetchConfigData(options);
@@ -248,7 +278,7 @@ const App = () => {
                 cursor = updatedData.nextCursor || 0;
             } while (updatedData && updatedData.hasMore);
         } catch(e) {
-            alert("测速接口异常");
+            showNotice("测速接口异常");
         } finally {
             isRefreshingRef.current = false;
             setIsRefreshing(false);
@@ -290,7 +320,7 @@ const App = () => {
             await navigator.clipboard.writeText(text);
             setToastMessage(label + '已复制');
         } catch(e) {
-            window.prompt('复制 ' + label, text);
+            await showPrompt('浏览器阻止了自动复制，请手动复制下面的内容。', text, { title: '复制 ' + label, confirmText: '完成' });
         }
     };
     const normalizeTextForMatch = (value) => String(value || '').normalize('NFKC').toLowerCase();
@@ -317,7 +347,7 @@ const App = () => {
             setPublicShareExpiresAt(Number(data.expiresAt) || 0);
             await fetchPublicShareStats();
         } catch(e) {
-            alert(e.message || '生成公开链接失败');
+            showNotice(e.message || '生成公开链接失败');
         } finally {
             setIsGeneratingPublicShare(false);
         }
@@ -325,7 +355,7 @@ const App = () => {
 
     const deletePublicShareLink = async (token) => {
         if (!token) return;
-        if (!window.confirm('删除这个公开页链接？删除后访问会立即失效。')) return;
+        if (!await showConfirm('删除这个公开页链接？删除后访问会立即失效。', { title: '删除公开链接', tone: 'danger', confirmText: '删除' })) return;
         setDeletingPublicShareToken(token);
         try {
             const res = await apiFetch('/api/public/share-token/' + encodeURIComponent(token), { method: 'DELETE' });
@@ -337,7 +367,7 @@ const App = () => {
                 setPublicShareExpiresAt(0);
             }
         } catch(e) {
-            alert(e.message || '删除公开链接失败');
+            showNotice(e.message || '删除公开链接失败');
         } finally {
             setDeletingPublicShareToken('');
         }
@@ -365,7 +395,7 @@ const App = () => {
             if (!res.ok || !data.ok || !data.url) throw new Error(data.error || '生成卡片图片失败');
             setCardShareLinks((current) => ({ ...current, [serverId]: { url: data.url, expiresAt: Number(data.expiresAt) || 0 } }));
         } catch(e) {
-            alert(e.message || '生成卡片图片失败');
+            showNotice(e.message || '生成卡片图片失败');
         } finally {
             setGeneratingCardShareId(null);
         }
@@ -520,10 +550,10 @@ const App = () => {
 
     const applyQuickImportText = () => {
         const value = quickImportText.trim();
-        if (!value) return alert('请先粘贴包含服务器、用户名或密码的信息');
+        if (!value) return showNotice('请先粘贴包含服务器、用户名或密码的信息');
         const parsed = parseQuickImportText(value);
         const hasRecognizedField = Boolean(parsed.url || parsed.username || parsed.password);
-        if (!hasRecognizedField) return alert('没有识别到服务器地址、用户名或密码');
+        if (!hasRecognizedField) return showNotice('没有识别到服务器地址、用户名或密码');
         if (parsed.url) {
             const parsedUrl = splitServerUrl(parsed.url);
             setAddForm((current) => ({ ...current, name: current.name || parsed.username || parsedUrl.host, protocol: parsedUrl.protocol, host: parsedUrl.host, port: parsedUrl.port }));
@@ -583,7 +613,7 @@ const App = () => {
     };
 
     const handleSaveServer = async () => {
-        if(!addForm.name || !addForm.host) return alert("请填写名称和地址");
+        if(!addForm.name || !addForm.host) return showNotice("请填写名称和地址");
         if (isSavingServer || isRefreshing) return;
         setIsSavingServer(true);
         try {
@@ -651,7 +681,7 @@ const App = () => {
         await manualPing(serversToPing, savedUpdatedAt, { forceMedia: true });
         } catch(e) {
             console.error('保存服务器失败', e);
-            alert(e.message || '服务器保存失败，请稍后重试');
+            showNotice(e.message || '服务器保存失败，请稍后重试');
         } finally {
             setIsSavingServer(false);
         }
@@ -663,14 +693,14 @@ const App = () => {
             setTelegramForm(nextTelegram);
             await syncToCloud(servers, iconLib, nextTelegram);
             setNotifyEnabled(nextTelegram.enabled && nextTelegram.botToken && nextTelegram.chatId);
-            alert("Telegram 配置已保存");
-        } catch(e) { alert("Telegram 配置保存失败"); }
+            showNotice("Telegram 配置已保存");
+        } catch(e) { showNotice("Telegram 配置保存失败"); }
     };
 
     const handleTestTelegram = async () => {
         const nextTelegram = { enabled: Boolean(telegramForm.enabled), botToken: telegramForm.botToken.trim(), chatId: telegramForm.chatId.trim() };
         if (!nextTelegram.enabled || !nextTelegram.botToken || !nextTelegram.chatId) {
-            alert('请先启用并填写 Bot Token 和 Chat ID');
+            showNotice('请先启用并填写 Bot Token 和 Chat ID');
             return;
         }
         setIsTestingTelegram(true);
@@ -682,16 +712,16 @@ const App = () => {
             });
             const data = await r.json().catch(() => ({}));
             if (!r.ok || !data.ok) throw new Error(data.error || '测试通知发送失败');
-            alert('测试通知已发送，请检查 Telegram 是否收到消息');
+            showNotice('测试通知已发送，请检查 Telegram 是否收到消息');
         } catch(e) {
-            alert('测试通知发送失败：' + (e.message || '请检查 Bot Token / Chat ID'));
+            showNotice('测试通知发送失败：' + (e.message || '请检查 Bot Token / Chat ID'));
         } finally {
             setIsTestingTelegram(false);
         }
     };
 
     const handleSyncIcons = async () => {
-        if(!iconInput.includes('http')) return alert("请输入 JSON 链接");
+        if(!iconInput.includes('http')) return showNotice("请输入 JSON 链接");
         try {
             const r = await apiFetch("/api/fetch-icons?url=" + encodeURIComponent(iconInput));
             if (!r.ok) throw new Error(await r.text() || '图标库拉取失败');
@@ -699,39 +729,39 @@ const App = () => {
             if (!icons || typeof icons !== 'object' || Array.isArray(icons) || Object.keys(icons).length === 0) throw new Error('没有从该 JSON 中识别到图片链接');
             setIconLib(icons); localStorage.setItem('last_icon_input', iconInput);
             await syncToCloud(servers, icons);
-            alert("图标库拉取并提取成功！");
-        } catch(e) { alert("解析失败：" + (e.message || "请检查 JSON 链接格式。")); }
+            showNotice("图标库拉取并提取成功！");
+        } catch(e) { showNotice("解析失败：" + (e.message || "请检查 JSON 链接格式。")); }
     };
 
-    const checkForUpdate = async (showAlert = true) => {
+    const checkForUpdate = async (showResult = true) => {
         setIsCheckingUpdate(true);
         try {
             const r = await apiFetch('/api/update/check');
-            if (r.status === 401) { if (showAlert) alert('请先输入正确的管理 Token'); return; }
+            if (r.status === 401) { if (showResult) showNotice('请先输入正确的管理 Token'); return; }
             const data = await r.json();
             setUpdateInfo(data);
-            if (showAlert) {
+            if (showResult) {
                 const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\n\n更新内容：\n' + data.releaseNotes.map(note => '- ' + note).join('\n') : '';
-                alert(data.hasUpdate ? ('发现新版本：' + data.latestVersion + notes) : '当前已经是最新版本');
+                await showAlert(data.hasUpdate ? ('发现新版本：' + data.latestVersion + notes) : '当前已经是最新版本', { title: '更新检查' });
             }
         } catch(e) {
-            if (showAlert) alert('检查更新失败：' + (e.message || '网络异常'));
+            if (showResult) showNotice('检查更新失败：' + (e.message || '网络异常'));
         } finally { setIsCheckingUpdate(false); }
     };
 
     const applyUpdate = async () => {
-        if (!updateInfo || !updateInfo.hasUpdate) return alert('当前没有可更新版本');
-        if (!updateInfo.canUpdate) return alert('当前 Worker 没有配置自更新环境变量，请按 README 配置 CF_ACCOUNT_ID、CF_WORKER_NAME、CF_API_TOKEN 和 UPDATE_ENABLED');
-        if (!confirm('确认更新到 ' + updateInfo.latestVersion + '？更新会覆盖当前 Worker 代码，但不会清空 KV 配置。')) return;
+        if (!updateInfo || !updateInfo.hasUpdate) return showNotice('当前没有可更新版本');
+        if (!updateInfo.canUpdate) return showAlert('当前 Worker 没有配置自更新环境变量，请按 README 配置 CF_ACCOUNT_ID、CF_WORKER_NAME、CF_API_TOKEN 和 UPDATE_ENABLED', { title: '无法自更新' });
+        if (!await showConfirm('确认更新到 ' + updateInfo.latestVersion + '？更新会覆盖当前 Worker 代码，但不会清空 KV 配置。', { title: '确认更新', confirmText: '更新' })) return;
         setIsApplyingUpdate(true);
         try {
             const r = await apiFetch('/api/update/apply', { method: 'POST' });
             const data = await r.json().catch(() => ({}));
             if (!r.ok || !data.ok) throw new Error(data.error || '更新失败');
             const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\n\n更新内容：\n' + data.releaseNotes.map(note => '- ' + note).join('\n') : '';
-            alert('更新完成，页面即将刷新' + notes);
+            await showAlert('更新完成，页面即将刷新' + notes, { title: '更新完成' });
             setTimeout(() => location.reload(), 1200);
-        } catch(e) { alert('更新失败：' + (e.message || 'Cloudflare API 调用异常')); } finally { setIsApplyingUpdate(false); }
+        } catch(e) { showNotice('更新失败：' + (e.message || 'Cloudflare API 调用异常')); } finally { setIsApplyingUpdate(false); }
     };
 
     const fetchRuntimeLogs = async () => {
@@ -742,7 +772,7 @@ const App = () => {
             if (!r.ok || !data.ok) throw new Error(data.error || '日志读取失败');
             setRuntimeLogs(Array.isArray(data.logs) ? data.logs : []);
         } catch(e) {
-            alert('日志读取失败：' + (e.message || '请稍后重试'));
+            showNotice('日志读取失败：' + (e.message || '请稍后重试'));
         } finally {
             setIsLoadingLogs(false);
         }
@@ -769,7 +799,7 @@ const App = () => {
             }
             await fetchRuntimeLogs();
         } catch(e) {
-            alert('日志设置保存失败：' + (e.message || '请稍后重试'));
+            showNotice('日志设置保存失败：' + (e.message || '请稍后重试'));
         } finally {
             setIsSavingLogging(false);
         }
@@ -789,12 +819,12 @@ const App = () => {
             link.remove();
             URL.revokeObjectURL(blobUrl);
         } catch(e) {
-            alert('日志下载失败：' + (e.message || '请稍后重试'));
+            showNotice('日志下载失败：' + (e.message || '请稍后重试'));
         }
     };
 
     const clearRuntimeLogs = async () => {
-        if (!confirm('确认清空运行日志？')) return;
+        if (!await showConfirm('确认清空运行日志？', { title: '清空日志', tone: 'danger', confirmText: '清空' })) return;
         setIsLoadingLogs(true);
         try {
             const r = await apiFetch('/api/logs', { method: 'DELETE' });
@@ -802,14 +832,61 @@ const App = () => {
             if (!r.ok || !data.ok) throw new Error(data.error || '日志清空失败');
             setRuntimeLogs(Array.isArray(data.logs) ? data.logs : []);
         } catch(e) {
-            alert('日志清空失败：' + (e.message || '请稍后重试'));
+            showNotice('日志清空失败：' + (e.message || '请稍后重试'));
         } finally {
             setIsLoadingLogs(false);
         }
     };
 
-    if (accessDenied) return <div className="flex items-center justify-center min-h-screen p-6 text-center"><div className="max-w-lg w-full glass-panel bg-white/80 rounded-[2rem] p-8 shadow-2xl border border-white"><div className="text-rose-600 font-black text-lg mb-2">访问被拒绝</div><div className="text-slate-600 text-sm font-semibold whitespace-pre-wrap">{accessDenied}</div></div></div>;
-    if (isLoading) return <div className="flex items-center justify-center min-h-screen text-slate-500 font-bold">读取云端配置中...</div>;
+    const systemDialogOverlay = systemDialog && (() => {
+        const isDanger = systemDialog.tone === 'danger';
+        const iconClass = isDanger ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-blue-50 text-blue-600 border-blue-100';
+        const confirmClass = isDanger ? 'bg-rose-600 hover:bg-rose-500 shadow-[0_8px_20px_rgba(225,29,72,0.2)]' : 'bg-slate-900 hover:bg-slate-800 shadow-[0_8px_20px_rgba(15,23,42,0.18)]';
+        return (
+            <div className="mobile-modal fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+                <div className="mobile-modal-backdrop absolute inset-0 bg-slate-900/25 backdrop-blur-sm transition-opacity" onClick={() => closeSystemDialog(systemDialog.type === 'alert' ? true : false)}></div>
+                <form
+                    className="mobile-sheet relative w-full max-w-md glass-panel bg-white/90 rounded-[2rem] shadow-2xl p-6 border border-white animate-in zoom-in-95 duration-200"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        closeSystemDialog(systemDialog.type === 'prompt' ? systemDialog.inputValue : true);
+                    }}
+                >
+                    <div className="flex items-start gap-4">
+                        <div className={"w-11 h-11 rounded-2xl border flex items-center justify-center flex-shrink-0 " + iconClass}>
+                            {isDanger ? <Icons.AlertCircle className="w-5 h-5" /> : <Icons.MessageSquare className="w-5 h-5" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <h2 className="text-lg font-black text-slate-800 leading-tight pr-8">{systemDialog.title}</h2>
+                            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600 whitespace-pre-wrap break-words">{systemDialog.message}</div>
+                        </div>
+                    </div>
+                    {systemDialog.type === 'prompt' && (
+                        <input
+                            autoFocus
+                            value={systemDialog.inputValue}
+                            placeholder={systemDialog.inputPlaceholder}
+                            onChange={(event) => setSystemDialog((current) => current ? { ...current, inputValue: event.target.value } : current)}
+                            className="mt-5 w-full glass-input px-4 py-3 rounded-2xl text-sm font-semibold outline-none"
+                        />
+                    )}
+                    <div className="mt-6 flex justify-end gap-2">
+                        {systemDialog.type !== 'alert' && (
+                            <button type="button" onClick={() => closeSystemDialog(false)} className="px-4 py-2.5 rounded-xl bg-white/80 text-slate-500 hover:text-slate-800 border border-slate-200 text-sm font-black transition-colors">
+                                {systemDialog.cancelText}
+                            </button>
+                        )}
+                        <button type="submit" className={"px-4 py-2.5 rounded-xl text-white text-sm font-black transition-colors " + confirmClass}>
+                            {systemDialog.confirmText}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        );
+    })();
+
+    if (accessDenied) return <div className="flex items-center justify-center min-h-screen p-6 text-center"><div className="max-w-lg w-full glass-panel bg-white/80 rounded-[2rem] p-8 shadow-2xl border border-white"><div className="text-rose-600 font-black text-lg mb-2">访问被拒绝</div><div className="text-slate-600 text-sm font-semibold whitespace-pre-wrap">{accessDenied}</div></div>{systemDialogOverlay}</div>;
+    if (isLoading) return <div className="flex items-center justify-center min-h-screen text-slate-500 font-bold">读取云端配置中...{systemDialogOverlay}</div>;
 
     // 动态数据计算
     const onlineCount = servers.filter(s => s.status === 'online').length;
@@ -868,9 +945,11 @@ const App = () => {
 
     return (
         <div className="app-shell min-h-screen relative overflow-x-hidden">
+            {systemDialogOverlay}
             {toastMessage && (
-                <div className="fixed right-4 bottom-4 z-[70] px-4 py-3 rounded-2xl bg-slate-900/90 text-white text-sm font-bold shadow-2xl border border-white/10 backdrop-blur-md">
-                    {toastMessage}
+                <div className="fixed right-4 bottom-4 z-[70] max-w-[calc(100vw-2rem)] px-4 py-3 rounded-2xl bg-slate-900/90 text-white text-sm font-bold shadow-2xl border border-white/10 backdrop-blur-md flex items-center gap-2">
+                    <Icons.CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-300" />
+                    <span className="break-words">{toastMessage}</span>
                 </div>
             )}
             <div className="bg-canvas" aria-hidden="true">
@@ -1125,7 +1204,7 @@ const App = () => {
                                         <div className="server-card-section server-card-media rounded-2xl p-4 relative z-10">
                                             <div className="flex items-center justify-between mb-3">
                                                 <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">资源库较昨日变化</span>
-                                                {s.mediaStats.lastError && <button onClick={() => alert(s.mediaStats.lastError)} className="text-[10px] text-rose-500 font-bold" title={s.mediaStats.lastError}>更新失败</button>}
+                                                {s.mediaStats.lastError && <button onClick={() => showAlert(s.mediaStats.lastError, { title: '资源库更新失败', tone: 'danger' })} className="text-[10px] text-rose-500 font-bold" title={s.mediaStats.lastError}>更新失败</button>}
                                             </div>
                                             <div className="grid grid-cols-3 gap-2 divide-x divide-slate-200/60 text-center">
                                                 {[
@@ -1181,7 +1260,7 @@ const App = () => {
                                             <button onClick={() => openEditServerModal(s, true)} className={"px-3 py-1.5 rounded-lg transition-colors " + keepAliveButton.className}>{keepAliveButton.text}</button>
                                             <button onClick={() => openEditServerModal(s)} className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">编辑</button>
                                             <button onClick={async () => {
-                                                if(confirm('彻底删除该服务器?')) {
+                                                if(await showConfirm('彻底删除该服务器？', { title: '删除服务器', tone: 'danger', confirmText: '删除' })) {
                                                     const n = servers.filter(x => x.id !== s.id);
                                                     await syncToCloud(n, iconLib);
                                                 }
