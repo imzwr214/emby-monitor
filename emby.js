@@ -1413,8 +1413,12 @@ export default {
         };
         const extractPlayedAt = (item) => {
             if (!item) return 0;
-            const played = item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : (item.DatePlayed || '');
-            return parseEmbyDate(played);
+            const candidates = [
+                item.UserData && item.UserData.LastPlayedDate,
+                item.LastPlayedDate,
+                item.DatePlayed
+            ];
+            return Math.max(...candidates.map(parseEmbyDate));
         };
         const collectLatestPlayedItem = (items, latestPlayedAt = 0, latestItem = null) => {
             for (const item of items) {
@@ -1428,21 +1432,24 @@ export default {
         };
         let latestPlayedAt = 0;
         let latestItem = null;
+        const buildQuery = (params) => Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(value)).join('&');
+        const baseItemsQuery = {
+            SortBy: 'DatePlayed',
+            SortOrder: 'Descending',
+            Recursive: 'true',
+            GroupItems: 'false',
+            EnableUserData: 'true',
+            Fields: 'UserData,DatePlayed,LastPlayedDate',
+            IncludeItemTypes: 'Movie,Episode,Audio,MusicVideo,Video',
+            Limit: '50',
+            api_key: token
+        };
         for (const base of bases) {
             try {
-                const query = [
-                    'SortBy=DatePlayed',
-                    'SortOrder=Descending',
-                    'Recursive=true',
-                    'GroupItems=false',
-                    'EnableUserData=true',
-                    'Fields=UserData,DatePlayed',
-                    'IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video',
-                    'Limit=50'
-                ].join('&');
                 const endpoints = [
-                    { path: '/Users/' + encodeURIComponent(userId) + '/Items?' + query + '&api_key=' + encodeURIComponent(token), timeout: 8000 },
-                    { path: '/Users/' + encodeURIComponent(userId) + '/Items/Resume?Limit=50&Recursive=true&EnableUserData=true&Fields=UserData,DatePlayed&IncludeItemTypes=Movie,Episode,Audio,MusicVideo,Video&api_key=' + encodeURIComponent(token), timeout: 5000 }
+                    { path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery({ ...baseItemsQuery, Filters: 'IsPlayed' }), timeout: 10000 },
+                    { path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery(baseItemsQuery), timeout: 8000 },
+                    { path: '/Users/' + encodeURIComponent(userId) + '/Items/Resume?' + buildQuery({ Limit: '50', Recursive: 'true', EnableUserData: 'true', Fields: 'UserData,DatePlayed,LastPlayedDate', IncludeItemTypes: 'Movie,Episode,Audio,MusicVideo,Video', api_key: token }), timeout: 5000 }
                 ];
 
                 for (const endpoint of endpoints) {
@@ -1463,8 +1470,6 @@ export default {
                         lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
                     }
                 }
-
-                if (latestPlayedAt > 0) break;
 
             } catch(e) {
                 lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
