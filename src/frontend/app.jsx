@@ -1252,7 +1252,7 @@ const App = () => {
                             const stats = getAvailabilityStats(s);
                             const keepAliveButton = getKeepAliveButtonState(s);
                             const keepAlive = s.mediaStats && s.mediaStats.keepAlive ? s.mediaStats.keepAlive : {};
-                            const shouldShowLastPlayed = Boolean(sessionsLastPlayedEnabled && s.mediaStats && s.mediaStats.enabled && keepAlive.enabled && keepAlive.sessionsEnabled);
+                            const shouldShowLastPlayed = Boolean(sessionsLastPlayedEnabled && keepAlive.sessionsEnabled);
                             const lastPlayedText = formatLastPlayedText(s);
                             const lastPlayedError = (s.mediaStats && s.mediaStats.lastPlayed && s.mediaStats.lastPlayed.lastError) || (s.mediaStats && s.mediaStats.lastError) || '';
                             const lastPlayedTitle = lastPlayedText || lastPlayedError || '暂无上次活动时间';
