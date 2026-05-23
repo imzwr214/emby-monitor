@@ -22,6 +22,7 @@ const App = () => {
         return localStorage.getItem('hide_server_meta') === '1' ? 'all' : 'none';
     });
     const [isPrivacyMenuOpen, setIsPrivacyMenuOpen] = useState(false);
+    const [showLastPlayed, setShowLastPlayed] = useState(() => localStorage.getItem('show_last_played') !== '0');
     const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
 
     // 搜索与过滤
@@ -190,6 +191,7 @@ const App = () => {
     useEffect(() => { localStorage.setItem('availability_range', availabilityRange); }, [availabilityRange]);
     useEffect(() => { localStorage.setItem('availability_sort', availabilitySort); }, [availabilitySort]);
     useEffect(() => { localStorage.setItem('growth_metric', growthMetric); }, [growthMetric]);
+    useEffect(() => { localStorage.setItem('show_last_played', showLastPlayed ? '1' : '0'); }, [showLastPlayed]);
 
     const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
         const serverById = new Map(servers.map(s => [s.id, s]));
@@ -257,7 +259,7 @@ const App = () => {
                 if (pendingIds.size) {
                     setServers((current) => current.map((server) => pendingIds.has(server.id) ? { ...server, status: 'updating', latency: 0 } : server));
                 }
-                const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia), cursor }) });
+                const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia), refreshLastPlayed: Boolean(options.refreshLastPlayed), cursor }) });
                 if (!res.ok) throw new Error('测速接口异常');
                 updatedData = await res.json();
                 const futureIds = new Set(updatedData.hasMore ? currentServers.slice(Number(updatedData.nextCursor) || 0).map((server) => server.id) : []);
@@ -285,14 +287,14 @@ const App = () => {
         }
     };
 
-    const pingSingleServer = async (serverId, forceMedia = false) => {
+    const pingSingleServer = async (serverId, forceMedia = false, refreshLastPlayed = false) => {
         if (!serverId) return;
         setServers((current) => current.map((server) => String(server.id) === String(serverId) ? { ...server, status: 'updating', latency: 0 } : server));
         try {
             const res = await apiFetch('/api/ping-single', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ serverId, forceMedia: Boolean(forceMedia) })
+                body: JSON.stringify({ serverId, forceMedia: Boolean(forceMedia), refreshLastPlayed: Boolean(refreshLastPlayed) })
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.ok) throw new Error(data.error || '单体测速失败');
@@ -329,6 +331,11 @@ const App = () => {
     const formatStatTime = (value) => {
         const time = Number(value) || 0;
         return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '--';
+    };
+    const formatLastPlayedTime = (value) => {
+        const time = Number(value) || 0;
+        if (!time) return '未知';
+        return new Date(time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
     };
     const formatShareExpires = (value) => {
         const time = Number(value) || 0;
@@ -697,7 +704,7 @@ const App = () => {
         await syncToCloud(updatedServers, iconLib, telegramForm, newServer ? { addServerOnConflict: newServer } : {});
         const targetServerId = newServer ? newServer.id : editingServerId;
         setIsAddModalOpen(false); resetServerForm(); setActiveTab('cards');
-        await pingSingleServer(targetServerId, true);
+        await pingSingleServer(targetServerId, true, true);
         } catch(e) {
             console.error('保存服务器失败', e);
             showNotice(e.message || '服务器保存失败，请稍后重试');
@@ -1083,6 +1090,13 @@ const App = () => {
                                 {updateInfo && updateInfo.hasUpdate && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_0_2px_rgba(255,255,255,0.92)]"></span>}
                             </button>
                             <button
+                                onClick={() => setShowLastPlayed((current) => !current)}
+                                title={showLastPlayed ? '隐藏上次播放时间' : '显示上次播放时间'}
+                                className={"relative w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (showLastPlayed ? 'bg-white text-slate-700 hover:text-slate-900 hover:bg-white' : 'bg-slate-200 text-slate-500 hover:text-slate-700')}
+                            >
+                                <Icons.Glasses className="w-5 h-5" />
+                            </button>
+                            <button
                                 onClick={() => setShareModalTarget('public')}
                                 title="公开页"
                                 className="md:hidden w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
@@ -1099,7 +1113,7 @@ const App = () => {
                             <Icons.Plus className="w-4 h-4" /> 添加服务器
                         </button>
                         <button
-                            onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: true })}
+                            onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: true, refreshLastPlayed: true })}
                             disabled={isRefreshing}
                             className="mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap"
                         >
@@ -1211,6 +1225,8 @@ const App = () => {
                             const isOnline = s.status === 'online';
                             const stats = getAvailabilityStats(s);
                             const keepAliveButton = getKeepAliveButtonState(s);
+                            const lastPlayedAt = s.mediaStats && s.mediaStats.enabled ? Number(s.mediaStats.lastPlayedAt) || 0 : 0;
+                            const lastPlayedText = lastPlayedAt ? formatLastPlayedTime(lastPlayedAt) : (s.mediaStats && s.mediaStats.enabled && s.mediaStats.lastPlayedError ? '读取失败' : '未知');
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
                                 offline: { text: 'text-rose-700', bg: 'bg-rose-500/10', border: 'border-rose-200', dotClass: 'dot-offline', glowClass: 'glow-offline' },
@@ -1307,6 +1323,25 @@ const App = () => {
                                                     );
                                                 })}
                                             </div>
+                                        </div>
+                                    )}
+
+                                    {showLastPlayed && s.mediaStats && s.mediaStats.enabled && (
+                                        <div className="server-card-section mt-3 rounded-2xl px-4 py-3 relative z-10 flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2 min-w-0 text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                                                <Icons.Clock className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" />
+                                                <span className="truncate">上次播放</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (s.mediaStats && s.mediaStats.lastPlayedError) showAlert(s.mediaStats.lastPlayedError, { title: '上次播放读取失败', tone: 'danger' });
+                                                }}
+                                                className={"text-xs font-black tabular-nums truncate text-right " + (lastPlayedAt ? 'text-slate-700' : s.mediaStats.lastPlayedError ? 'text-rose-500' : 'text-slate-400')}
+                                                title={s.mediaStats.lastPlayedError || lastPlayedText}
+                                            >
+                                                {lastPlayedText}
+                                            </button>
                                         </div>
                                     )}
 

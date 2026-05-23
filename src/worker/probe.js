@@ -134,29 +134,115 @@
       try {
           let token = media.accessToken;
           let userId = media.userId || '';
+          let clientProfile = media.clientProfile || '';
           let counts;
           try {
               if (!token) {
                   const login = await this.loginEmbyForMedia(server);
                   token = login.accessToken;
                   userId = login.userId || userId;
+                  clientProfile = login.clientProfile || clientProfile;
               }
-              counts = await this.fetchEmbyMediaCounts(server, token);
+              counts = await this.fetchEmbyMediaCounts({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile });
+              clientProfile = counts.clientProfile || clientProfile;
           } catch(e) {
               const login = await this.loginEmbyForMedia(server);
               token = login.accessToken;
               userId = login.userId || userId;
-              counts = await this.fetchEmbyMediaCounts(server, token);
+              clientProfile = login.clientProfile || clientProfile;
+              counts = await this.fetchEmbyMediaCounts({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile });
+              clientProfile = counts.clientProfile || clientProfile;
           }
           const dailyStats = this.buildDailyMediaStats(media, counts, now);
           const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
           server.mediaStats = {
-              ...media, accessToken: token, userId, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
+              ...media, accessToken: token, userId, clientProfile, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
               lastCheck: counts.time, lastError: ''
           };
       } catch(e) { server.mediaStats = { ...media, lastError: e.message || '媒体库统计失败' }; }
       return server;
+  },
+
+  async refreshServerLastPlayed(server, now = Date.now()) {
+      const media = server.mediaStats || {};
+      if (!media.enabled) return { server, touched: false };
+      let token = media.accessToken || '';
+      let userId = media.userId || '';
+      let clientProfile = media.clientProfile || '';
+      try {
+          const login = await this.loginEmbyForMedia(server);
+          token = login.accessToken;
+          userId = login.userId || userId;
+          clientProfile = login.clientProfile || clientProfile;
+          const result = await this.fetchEmbyLastPlayed({ ...server, mediaStats: { ...media, clientProfile } }, token, userId, { includeItem: true, clientProfile });
+          const lastPlayedAt = Number(result.lastPlayedAt) || Number(media.lastPlayedAt) || 0;
+          const nextKeepAlive = media.keepAlive ? { ...media.keepAlive } : media.keepAlive;
+          if (nextKeepAlive && nextKeepAlive.enabled) {
+              const previousPlayedAt = Number(nextKeepAlive.lastPlayedAt) || 0;
+              if (lastPlayedAt && lastPlayedAt > previousPlayedAt) nextKeepAlive.alertSentAt = 0;
+              nextKeepAlive.lastPlayedAt = lastPlayedAt || previousPlayedAt;
+              nextKeepAlive.lastCheckedAt = now;
+          }
+          return {
+              server: {
+                  ...server,
+                  mediaStats: {
+                      ...media,
+                      accessToken: token,
+                      userId,
+                      clientProfile: result.clientProfile || clientProfile,
+                      lastPlayedAt,
+                      lastPlayedCheck: now,
+                      lastPlayedError: '',
+                      lastPlayedItem: result.item || media.lastPlayedItem || null,
+                      keepAlive: nextKeepAlive || media.keepAlive
+                  }
+              },
+              touched: true
+          };
+      } catch(e) {
+          return {
+              server: {
+                  ...server,
+                  mediaStats: {
+                      ...media,
+                      accessToken: token,
+                      userId,
+                      clientProfile,
+                      lastPlayedCheck: now,
+                      lastPlayedError: e.message || '最后播放时间读取失败'
+                  }
+              },
+              touched: true
+          };
+      }
+  },
+
+  async refreshAllLastPlayedIfRequested(config, options = {}) {
+      const cleanConfig = this.sanitizeConfig(config);
+      const transient = {
+          nextCursor: Number(config && config.nextCursor) || 0,
+          hasMore: Boolean(config && config.hasMore)
+      };
+      const now = Date.now();
+      const source = options.source === 'manual' ? 'manual' : 'scheduled';
+      const todayKey = this.getShanghaiDayKey(now);
+      const shouldRunDaily = source === 'scheduled' && this.isShanghaiMidnightWindow(now) && cleanConfig.lastPlayedDailyKey !== todayKey;
+      const shouldRunManual = source === 'manual' && Boolean(options.refreshLastPlayed);
+      if (!shouldRunDaily && !shouldRunManual) return cleanConfig;
+      const targets = cleanConfig.servers.filter((server) => server.mediaStats && server.mediaStats.enabled);
+      if (!targets.length) return shouldRunDaily ? { ...cleanConfig, ...transient, lastPlayedDailyKey: todayKey } : { ...cleanConfig, ...transient };
+      const concurrencyLimit = Math.max(1, Math.min(Number(this.PROBE_CONCURRENCY_LIMIT) || 4, 4));
+      const results = await this.mapWithConcurrency(targets, concurrencyLimit, (server) => this.refreshServerLastPlayed(server, now));
+      const byId = new Map(results.filter(Boolean).map((result) => [String(result.server.id), result.server]));
+      return {
+          ...cleanConfig,
+          ...transient,
+          updatedAt: Math.max(cleanConfig.updatedAt || 0, now),
+          lastPlayedDailyKey: shouldRunDaily ? todayKey : cleanConfig.lastPlayedDailyKey,
+          servers: cleanConfig.servers.map((server) => byId.get(String(server.id)) || server)
+      };
   },
 
   getKeepAliveState(server, now = Date.now()) {
@@ -193,7 +279,7 @@
       ].join('\n');
   },
 
-  async refreshKeepAliveIfNeeded(server, now = Date.now()) {
+  async refreshKeepAliveIfNeeded(server, now = Date.now(), options = {}) {
       const media = server.mediaStats || {};
       const keepAlive = media.keepAlive || {};
       if (!keepAlive.enabled) return { server, alert: null, touched: false };
@@ -201,10 +287,15 @@
       let token = media.accessToken || '';
       let userId = media.userId || '';
       try {
-          const login = await this.loginEmbyForMedia(server);
-          token = login.accessToken;
-          userId = login.userId || userId;
-          const lastPlayedAt = await this.fetchEmbyLastPlayed(server, token, userId);
+          let nextMedia = media;
+          let lastPlayedAt = Number(media.lastPlayedAt) || 0;
+          if (options.refreshLastPlayed !== false && (!lastPlayedAt || now - (Number(media.lastPlayedCheck) || 0) > 24 * 60 * 60 * 1000)) {
+              const refreshed = await this.refreshServerLastPlayed(server, now);
+              nextMedia = refreshed.server.mediaStats || media;
+              token = nextMedia.accessToken || token;
+              userId = nextMedia.userId || userId;
+              lastPlayedAt = Number(nextMedia.lastPlayedAt) || 0;
+          }
           const previousPlayedAt = Number(keepAlive.lastPlayedAt) || 0;
           if (lastPlayedAt && lastPlayedAt > previousPlayedAt) nextKeepAlive.alertSentAt = 0;
           nextKeepAlive.lastPlayedAt = lastPlayedAt || previousPlayedAt;
@@ -221,7 +312,7 @@
                   alert = { message: this.buildKeepAliveMessage(server, nextKeepAlive, inactiveDays, effectiveLastPlayedAt), serverId: server.id, checkedAt: now };
               }
           }
-          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert, touched: true };
+          return { server: { ...server, mediaStats: { ...nextMedia, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert, touched: true };
       } catch(e) {
           return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert: null, touched: true };
       }
@@ -361,6 +452,10 @@
       if (keepAliveResult && keepAliveResult.alert && telegramEnabled) {
           notifyQueue.push({ ...keepAliveResult.alert, kind: 'keepAlive' });
       }
+      if (options.refreshLastPlayed) {
+          const lastPlayedResult = await this.refreshServerLastPlayed(mergedServer);
+          if (lastPlayedResult && lastPlayedResult.touched) mergedServer = lastPlayedResult.server;
+      }
 
       const sendResults = await Promise.all(notifyQueue.map((item) => this.sendTelegram(env, item.message, baseConfig)));
       for (const [index, ok] of sendResults.entries()) {
@@ -480,7 +575,7 @@
           mergedConfig.nextScheduledCursor = nextCursor;
       }
       const keepAliveTargets = mergedConfig.servers.filter((server) => batchIds.has(server.id));
-      const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server));
+      const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server, Date.now(), { refreshLastPlayed: probeSource !== 'scheduled' }));
       for (const result of keepAliveResults) {
           if (!result || !result.touched) continue;
           const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
@@ -513,7 +608,12 @@
               mergedConfig.updatedAt = Math.max(mergedConfig.updatedAt || 0, Date.now());
           }
       }
-      await this.saveConfig(env, mergedConfig);
+      let configToSave = mergedConfig;
+      const shouldRefreshLastPlayed = probeSource === 'manual' && Boolean(options.refreshLastPlayed) && !mergedConfig.hasMore;
+      if (shouldRefreshLastPlayed) {
+          configToSave = await this.refreshAllLastPlayedIfRequested(mergedConfig, { source: probeSource, refreshLastPlayed: true });
+      }
+      await this.saveConfig(env, configToSave);
       const statusCounts = mergedConfig.servers.reduce((counts, server) => {
           const status = ['online', 'offline', 'unknown'].includes(server.status) ? server.status : 'unknown';
           counts[status] = (counts[status] || 0) + 1;
@@ -540,7 +640,7 @@
           notifyCount: notifyQueue.length,
           notifySuccessCount: sendResults.filter(Boolean).length,
           targets: probeDetails
-      }, { config: mergedConfig });
-      return mergedConfig;
+      }, { config: configToSave });
+      return configToSave;
   }
 ,

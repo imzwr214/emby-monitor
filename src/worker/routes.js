@@ -245,7 +245,7 @@
 
       const requestBody = await request.json().catch(() => ({}));
       const currentConfig = await this.loadConfig(env);
-      const updatedConfig = await this.runProbeLogic(env, currentConfig, { forceMedia: Boolean(requestBody.forceMedia), cursor: Number(requestBody.cursor) || 0, source: 'manual' });
+      const updatedConfig = await this.runProbeLogic(env, currentConfig, { forceMedia: Boolean(requestBody.forceMedia), refreshLastPlayed: Boolean(requestBody.refreshLastPlayed), cursor: Number(requestBody.cursor) || 0, source: 'manual' });
       return this.json({ ...updatedConfig, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
     }
 
@@ -257,7 +257,7 @@
       const serverId = requestBody.serverId;
       if (serverId === undefined || serverId === null || serverId === '') return this.json({ ok: false, error: 'Missing serverId' }, 400);
       const currentConfig = await this.loadConfig(env);
-      const result = await this.runSingleProbeLogic(env, currentConfig, serverId, { forceMedia: Boolean(requestBody.forceMedia) });
+      const result = await this.runSingleProbeLogic(env, currentConfig, serverId, { forceMedia: Boolean(requestBody.forceMedia), refreshLastPlayed: Boolean(requestBody.refreshLastPlayed) });
       if (!result.ok) return this.json({ ok: false, error: result.error || 'Single ping failed' }, result.status || 500);
       const updatedConfig = result.config;
       return this.json({ ok: true, ...updatedConfig, server: result.server, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
@@ -325,5 +325,11 @@
   },
 
   async scheduled(event, env, ctx) {
-      ctx.waitUntil(this.loadConfig(env).then((config) => this.runProbeLogic(env, config, { source: 'scheduled' })).catch((e) => this.appendRuntimeLog(env, 'error', 'probe.scheduled.error', '定时探测失败', { error: e.message || String(e) })));
+      ctx.waitUntil((async () => {
+          const config = await this.loadConfig(env);
+          const withDailyLastPlayed = await this.refreshAllLastPlayedIfRequested(config, { source: 'scheduled' });
+          const shouldSaveLastPlayed = withDailyLastPlayed.lastPlayedDailyKey !== (config.lastPlayedDailyKey || '') || Number(withDailyLastPlayed.updatedAt || 0) !== Number(config.updatedAt || 0);
+          const savedForProbe = shouldSaveLastPlayed ? await this.saveConfig(env, withDailyLastPlayed) : withDailyLastPlayed;
+          return this.runProbeLogic(env, savedForProbe, { source: 'scheduled' });
+      })().catch((e) => this.appendRuntimeLog(env, 'error', 'probe.scheduled.error', '定时探测失败', { error: e.message || String(e) })));
   },
