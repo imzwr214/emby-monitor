@@ -166,26 +166,42 @@
       return this.getShanghaiDayKey(lastPlayed.checkedAt) !== this.getShanghaiDayKey(now);
   },
 
-  async refreshLastPlayedIfNeeded(env, server, force = false, now = Date.now(), debug = false) {
+  async refreshLastPlayedIfNeeded(env, server, force = false, now = Date.now(), debug = false, sessionsLastPlayedEnabled = false) {
       const media = server.mediaStats || {};
       if (!media.enabled || !media.username) return { server, touched: false };
-      if (!force && !this.shouldRefreshLastPlayed(media, now)) return { server, touched: false };
+      const keepAlive = media.keepAlive || {};
+      const sessionsEnabled = Boolean(sessionsLastPlayedEnabled && keepAlive.enabled && keepAlive.sessionsEnabled);
+      const fiveMinutes = 5 * 60 * 1000;
+      const tenMinutes = 10 * 60 * 1000;
+      const sessionLastCheckedAt = Number(keepAlive.sessionProbeLastCheckedAt) || 0;
+      const sessionLastHitAt = Number(keepAlive.sessionProbeLastHitAt) || 0;
+      const sessionInterval = sessionLastHitAt && now - sessionLastHitAt < tenMinutes ? tenMinutes : fiveMinutes;
+      const sessionDue = sessionsEnabled && (!sessionLastCheckedAt || now - sessionLastCheckedAt >= sessionInterval);
+      const historyDue = Boolean(force) || this.shouldRefreshLastPlayed(media, now);
+      if (!historyDue && !sessionDue) return { server, touched: false };
       const previousLastPlayed = media.lastPlayed || {};
       let token = media.accessToken || '';
       let userId = media.userId || '';
+      let nextKeepAlive = keepAlive;
       try {
           const login = await this.loginEmbyForMedia(server);
           token = login.accessToken;
           userId = login.userId || userId;
-          /* trial: sessions-last-played */
-          if (force) {
+          if (sessionDue) {
               const sessionResult = await this.fetchEmbyActiveSessionLastPlayed(server, token, userId, { debug });
+              nextKeepAlive = { ...nextKeepAlive, sessionProbeLastCheckedAt: now };
               if (sessionResult && sessionResult.lastPlayedAt) {
                   const lastPlayed = {
                       lastPlayedAt: Number(sessionResult.lastPlayedAt) || now,
                       item: sessionResult.item || null,
                       checkedAt: now,
                       lastError: ''
+                  };
+                  nextKeepAlive = {
+                      ...nextKeepAlive,
+                      lastPlayedAt: Math.max(Number(nextKeepAlive.lastPlayedAt) || 0, lastPlayed.lastPlayedAt),
+                      sessionProbeLastHitAt: now,
+                      alertSentAt: 0
                   };
                   if (debug) {
                       await this.appendRuntimeLog(env, 'info', 'media.lastPlayed.sessionsTrial', 'Sessions 试验命中当前播放', {
@@ -197,7 +213,7 @@
                           debug: sessionResult.debug || []
                       }, { force: true });
                   }
-                  return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed } }, touched: true };
+                  return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive, lastPlayed } }, touched: true };
               }
               if (debug) {
                   await this.appendRuntimeLog(env, 'info', 'media.lastPlayed.sessionsTrial', 'Sessions 试验未发现当前播放', {
@@ -206,6 +222,9 @@
                       userId,
                       debug: sessionResult && sessionResult.debug ? sessionResult.debug : []
                   }, { force: true });
+              }
+              if (!historyDue) {
+                  return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, touched: true };
               }
           }
           const result = await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: true, includeItem: true, debug });
@@ -225,7 +244,7 @@
                   debug: result.debug || []
               }, { force: true });
           }
-          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed } }, touched: true };
+          return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive, lastPlayed } }, touched: true };
       } catch(e) {
           if (debug) {
               await this.appendRuntimeLog(env, 'warn', 'media.lastPlayed.lookup', '上次播放查询失败', {
@@ -237,7 +256,7 @@
               }, { force: true });
           }
           return {
-              server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed: { ...previousLastPlayed, lastError: e.message || '上次观看读取失败' } } },
+              server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive, lastPlayed: { ...previousLastPlayed, lastError: e.message || '上次活动读取失败' } } },
               touched: true
           };
       }
@@ -327,7 +346,7 @@
       return results;
   },
 
-  async probeServerRuntimeState(env, server, forceMedia = false) {
+  async probeServerRuntimeState(env, server, forceMedia = false, sessionsLastPlayedEnabled = false) {
       const cleanServers = this.sanitizeConfig({ servers: [server] }).servers;
       let s = cleanServers[0] || { ...server };
       const previousStatus = s.status;
@@ -347,7 +366,7 @@
           s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
           s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
           await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
-          const lastPlayedResult = await this.refreshLastPlayedIfNeeded(env, s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt, Boolean(forceMedia));
+          const lastPlayedResult = await this.refreshLastPlayedIfNeeded(env, s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt, Boolean(forceMedia), sessionsLastPlayedEnabled);
           s = lastPlayedResult.server;
           s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
           s.previousStatus = previousStatus; return s;
@@ -390,7 +409,7 @@
       s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
       s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
       await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
-      const lastPlayedResult = await this.refreshLastPlayedIfNeeded(env, s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt, Boolean(forceMedia));
+      const lastPlayedResult = await this.refreshLastPlayedIfNeeded(env, s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt, Boolean(forceMedia), sessionsLastPlayedEnabled);
       s = lastPlayedResult.server;
       s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
       s.previousStatus = previousStatus; return s;
@@ -428,8 +447,9 @@
 
       const probeStartedAt = Date.now();
       const forceMedia = Boolean(options.forceMedia);
+      const sessionsLastPlayedEnabled = Boolean(cleanConfig.sessionsLastPlayed && cleanConfig.sessionsLastPlayed.enabled);
       await this.appendRuntimeLog(env, 'info', 'probe.single.start', '单体测速开始', { source: 'manual', forceMedia, serverId: target.id, serverName: target.name }, { config: cleanConfig });
-      const probed = await this.probeServerRuntimeState(env, target, forceMedia);
+      const probed = await this.probeServerRuntimeState(env, target, forceMedia, sessionsLastPlayedEnabled);
 
       const latestConfig = await this.loadConfig(env);
       const baseConfig = this.sanitizeConfig(latestConfig);
@@ -516,8 +536,9 @@
       const probeTargets = config.servers.filter((s) => batchIds.has(s.id));
       await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers, targetCount: probeTargets.length }, { config });
 
+      const sessionsLastPlayedEnabled = Boolean(config.sessionsLastPlayed && config.sessionsLastPlayed.enabled);
       const probedServers = await this.mapWithConcurrency(probeTargets, concurrencyLimit, async (s) => {
-          return this.probeServerRuntimeState(env, s, forceMedia);
+          return this.probeServerRuntimeState(env, s, forceMedia, sessionsLastPlayedEnabled);
       });
 
       const suppressProbeFailures = false; // 分批探测模式下禁用单批次大面积掉线防误报拦截
@@ -527,9 +548,9 @@
       const latestById = new Map(latestConfig.servers.map((s) => [s.id, s]));
       const notifyQueue = [];
       const sourceConfig = latestConfig;
-      const baseConfig = this.sanitizeConfig({ icons: sourceConfig.icons !== undefined ? sourceConfig.icons : latestConfig.icons, telegram: sourceConfig.telegram !== undefined ? sourceConfig.telegram : latestConfig.telegram, logging: sourceConfig.logging !== undefined ? sourceConfig.logging : latestConfig.logging, servers: sourceConfig.servers, updatedAt: sourceConfig.updatedAt || latestConfig.updatedAt || 0 });
+      const baseConfig = this.sanitizeConfig({ icons: sourceConfig.icons !== undefined ? sourceConfig.icons : latestConfig.icons, telegram: sourceConfig.telegram !== undefined ? sourceConfig.telegram : latestConfig.telegram, logging: sourceConfig.logging !== undefined ? sourceConfig.logging : latestConfig.logging, sessionsLastPlayed: sourceConfig.sessionsLastPlayed !== undefined ? sourceConfig.sessionsLastPlayed : latestConfig.sessionsLastPlayed, servers: sourceConfig.servers, updatedAt: sourceConfig.updatedAt || latestConfig.updatedAt || 0 });
       const mergedConfig = {
-          icons: baseConfig.icons, telegram: baseConfig.telegram, logging: baseConfig.logging, updatedAt: Math.max(baseConfig.updatedAt || 0, latestConfig.updatedAt || 0),
+          icons: baseConfig.icons, telegram: baseConfig.telegram, logging: baseConfig.logging, sessionsLastPlayed: baseConfig.sessionsLastPlayed, updatedAt: Math.max(baseConfig.updatedAt || 0, latestConfig.updatedAt || 0),
           servers: baseConfig.servers.map((latest) => {
               const probed = probedById.get(latest.id);
               const previouslySaved = latestById.get(latest.id) || latest;

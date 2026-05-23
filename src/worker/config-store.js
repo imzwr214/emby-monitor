@@ -29,8 +29,8 @@
   configRevision(config) {
       const clean = this.sanitizeConfig(config);
       const settingsOnly = {
-          icons: clean.icons, telegram: clean.telegram, logging: clean.logging,
-          servers: clean.servers.map((server) => ({ id: server.id, name: server.name, url: server.url, fallbackUrls: server.fallbackUrls, customIcon: server.customIcon, mediaStats: { enabled: Boolean(server.mediaStats && server.mediaStats.enabled), username: server.mediaStats ? server.mediaStats.username : '', password: server.mediaStats ? server.mediaStats.password : '', keepAlive: server.mediaStats ? { enabled: Boolean(server.mediaStats.keepAlive && server.mediaStats.keepAlive.enabled), periodDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.periodDays : 30, alertDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.alertDays : 27 } : { enabled: false, periodDays: 30, alertDays: 27 } } }))
+          icons: clean.icons, telegram: clean.telegram, logging: clean.logging, sessionsLastPlayed: clean.sessionsLastPlayed,
+          servers: clean.servers.map((server) => ({ id: server.id, name: server.name, url: server.url, fallbackUrls: server.fallbackUrls, customIcon: server.customIcon, mediaStats: { enabled: Boolean(server.mediaStats && server.mediaStats.enabled), username: server.mediaStats ? server.mediaStats.username : '', password: server.mediaStats ? server.mediaStats.password : '', keepAlive: server.mediaStats ? { enabled: Boolean(server.mediaStats.keepAlive && server.mediaStats.keepAlive.enabled), periodDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.periodDays : 30, alertDays: server.mediaStats.keepAlive ? server.mediaStats.keepAlive.alertDays : 27, sessionsEnabled: Boolean(server.mediaStats.keepAlive && server.mediaStats.keepAlive.sessionsEnabled) } : { enabled: false, periodDays: 30, alertDays: 27, sessionsEnabled: false } } }))
       };
       const text = JSON.stringify(settingsOnly);
       let hash = 2166136261;
@@ -39,7 +39,7 @@
   },
 
   sanitizeConfig(config) {
-      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0 };
+      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, sessionsLastPlayed: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0 };
       if (config && Number.isFinite(Number(config.updatedAt))) clean.updatedAt = Math.max(0, Number(config.updatedAt));
       if (config && Number.isFinite(Number(config.nextScheduledCursor))) clean.nextScheduledCursor = Math.max(0, Number(config.nextScheduledCursor));
       if (config && config.telegram && typeof config.telegram === 'object') {
@@ -47,6 +47,9 @@
       }
       if (config && config.logging && typeof config.logging === 'object') {
           clean.logging = { enabled: Boolean(config.logging.enabled) };
+      }
+      if (config && config.sessionsLastPlayed && typeof config.sessionsLastPlayed === 'object') {
+          clean.sessionsLastPlayed = { enabled: Boolean(config.sessionsLastPlayed.enabled) };
       }
       if (config && Array.isArray(config.servers)) {
           clean.servers = config.servers
@@ -123,9 +126,12 @@
               enabled: Boolean(source.enabled),
               periodDays,
               alertDays,
+              sessionsEnabled: Boolean(source.sessionsEnabled),
               lastPlayedAt: Number.isFinite(Number(source.lastPlayedAt)) ? Math.max(0, Number(source.lastPlayedAt)) : 0,
               lastCheckedAt: Number.isFinite(Number(source.lastCheckedAt)) ? Math.max(0, Number(source.lastCheckedAt)) : 0,
-              alertSentAt: Number.isFinite(Number(source.alertSentAt)) ? Math.max(0, Number(source.alertSentAt)) : 0
+              alertSentAt: Number.isFinite(Number(source.alertSentAt)) ? Math.max(0, Number(source.alertSentAt)) : 0,
+              sessionProbeLastCheckedAt: Number.isFinite(Number(source.sessionProbeLastCheckedAt)) ? Math.max(0, Number(source.sessionProbeLastCheckedAt)) : 0,
+              sessionProbeLastHitAt: Number.isFinite(Number(source.sessionProbeLastHitAt)) ? Math.max(0, Number(source.sessionProbeLastHitAt)) : 0
           };
       };
       const normalizeLastPlayed = (value) => {
