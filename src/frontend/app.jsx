@@ -44,6 +44,7 @@ const App = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('cards');
     const [notifyEnabled, setNotifyEnabled] = useState(false);
+    const [growthMetric, setGrowthMetric] = useState(() => localStorage.getItem('growth_metric') || 'total');
     const [configUpdatedAt, setConfigUpdatedAt] = useState(0);
     const [configRevision, setConfigRevision] = useState('');
     const [updateInfo, setUpdateInfo] = useState(null);
@@ -190,6 +191,7 @@ const App = () => {
     }, [isPrivacyMenuOpen]);
     useEffect(() => { localStorage.setItem('availability_range', availabilityRange); }, [availabilityRange]);
     useEffect(() => { localStorage.setItem('availability_sort', availabilitySort); }, [availabilitySort]);
+    useEffect(() => { localStorage.setItem('growth_metric', growthMetric); }, [growthMetric]);
 
     const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
         const serverById = new Map(servers.map(s => [s.id, s]));
@@ -974,6 +976,58 @@ const App = () => {
     const sortedServers = filteredServers;
     const availabilitySortArrow = availabilitySort === 'asc' ? '↑' : availabilitySort === 'desc' ? '↓' : '';
     const nextAvailabilitySort = () => setAvailabilitySort(availabilitySort === 'none' ? 'asc' : availabilitySort === 'asc' ? 'desc' : 'none');
+    const growthMetricOptions = [
+        { key: 'total', label: '总增长', icon: Icons.TrendingUp },
+        { key: 'movie', label: '电影', icon: Icons.Film },
+        { key: 'series', label: '剧集', icon: Icons.Tv },
+        { key: 'episode', label: '单集', icon: Icons.PlaySquare }
+    ];
+    const getMediaDeltaValue = (server, key) => {
+        const media = server && server.mediaStats ? server.mediaStats : {};
+        const delta = media.dailyDelta || media.delta24h || {};
+        const movie = Number.isFinite(Number(delta.movie)) ? Number(delta.movie) : 0;
+        const series = Number.isFinite(Number(delta.series)) ? Number(delta.series) : 0;
+        const episode = Number.isFinite(Number(delta.episode)) ? Number(delta.episode) : 0;
+        if (key === 'movie') return movie;
+        if (key === 'series') return series;
+        if (key === 'episode') return episode;
+        return movie + series + episode;
+    };
+    const getMediaCountValue = (server, key) => {
+        const counts = server && server.mediaStats && server.mediaStats.counts ? server.mediaStats.counts : {};
+        const movie = Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : 0;
+        const series = Number.isFinite(Number(counts.series)) ? Number(counts.series) : 0;
+        const episode = Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : 0;
+        if (key === 'movie') return movie;
+        if (key === 'series') return series;
+        if (key === 'episode') return episode;
+        return movie + series + episode;
+    };
+    const formatSignedCount = (value) => {
+        const count = Number.isFinite(Number(value)) ? Number(value) : 0;
+        return (count > 0 ? '+' : '') + String(count);
+    };
+    const mediaGrowthRows = filteredServers
+        .filter((server) => server.mediaStats && server.mediaStats.enabled && server.mediaStats.counts)
+        .map((server) => {
+            const media = server.mediaStats || {};
+            const delta = media.dailyDelta || media.delta24h || {};
+            return {
+                server,
+                sortValue: getMediaDeltaValue(server, growthMetric),
+                currentValue: getMediaCountValue(server, growthMetric),
+                deltas: {
+                    movie: Number.isFinite(Number(delta.movie)) ? Number(delta.movie) : 0,
+                    series: Number.isFinite(Number(delta.series)) ? Number(delta.series) : 0,
+                    episode: Number.isFinite(Number(delta.episode)) ? Number(delta.episode) : 0
+                }
+            };
+        })
+        .sort((a, b) => {
+            if (b.sortValue !== a.sortValue) return b.sortValue - a.sortValue;
+            return getMediaCountValue(b.server, growthMetric) - getMediaCountValue(a.server, growthMetric);
+        });
+    const mediaGrowthTotal = mediaGrowthRows.reduce((sum, row) => sum + row.sortValue, 0);
 
     return (
         <div className="app-shell min-h-screen relative overflow-x-hidden">
@@ -1106,6 +1160,9 @@ const App = () => {
                         <button onClick={() => setActiveTab('cards')} className={"tab-btn " + (activeTab === 'cards' ? 'active' : '')}>
                             <Icons.LayoutGrid className="w-4 h-4" /> 看板
                         </button>
+                        <button onClick={() => setActiveTab('growth')} className={"tab-btn " + (activeTab === 'growth' ? 'active' : '')}>
+                            <Icons.TrendingUp className="w-4 h-4" /> 资源增长榜
+                        </button>
                         <button onClick={() => setActiveTab('dashboard')} className={"tab-btn " + (activeTab === 'dashboard' ? 'active' : '')}>
                             <Icons.Activity className="w-4 h-4" /> 历史大盘
                         </button>
@@ -1118,6 +1175,13 @@ const App = () => {
                             <div className="mobile-range-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
                                 <button onClick={() => setAvailabilityRange('day')} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (availabilityRange === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>24H</button>
                                 <button onClick={() => setAvailabilityRange('week')} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (availabilityRange === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>7天</button>
+                            </div>
+                            )}
+                            {activeTab === 'growth' && (
+                            <div className="mobile-range-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
+                                {growthMetricOptions.map((option) => (
+                                    <button key={option.key} onClick={() => setGrowthMetric(option.key)} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (growthMetric === option.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>{option.label}</button>
+                                ))}
                             </div>
                             )}
                         {/* 状态筛选胶囊 */}
@@ -1302,6 +1366,120 @@ const App = () => {
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+
+                {/* Growth Ranking View */}
+                {activeTab === 'growth' && filteredServers.length > 0 && (
+                    <div className="mobile-dashboard dashboard-shell rounded-[2rem] p-5 flex flex-col gap-4 relative overflow-hidden">
+                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent pointer-events-none"></div>
+                        <div className="dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(220px,0.28fr)_minmax(0,1fr)] gap-4 lg:items-center">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 text-slate-800 font-black text-xl tracking-tight">
+                                    <Icons.TrendingUp className="w-5 h-5 text-emerald-500" />
+                                    每日资源增长榜
+                                </div>
+                                <div className="mt-1 text-[11px] text-slate-500 font-bold">
+                                    按较昨日增长从多到少排序
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {growthMetricOptions.map((option) => {
+                                    const OptionIcon = option.icon;
+                                    return (
+                                        <button
+                                            key={option.key}
+                                            onClick={() => setGrowthMetric(option.key)}
+                                            className={"min-h-[44px] rounded-2xl border px-3 py-2 flex items-center justify-center gap-2 text-xs font-black transition-all " + (growthMetric === option.key ? 'bg-white text-slate-900 border-white shadow-sm' : 'bg-white/45 text-slate-500 border-white/70 hover:bg-white/70 hover:text-slate-800')}
+                                        >
+                                            <OptionIcon className="w-4 h-4 flex-shrink-0" />
+                                            <span className="truncate">{option.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {mediaGrowthRows.length === 0 ? (
+                            <div className="dashboard-row p-8 rounded-2xl text-center">
+                                <div className="mx-auto w-14 h-14 rounded-2xl bg-white/70 border border-white flex items-center justify-center text-slate-400">
+                                    <Icons.TrendingUp className="w-6 h-6" />
+                                </div>
+                                <div className="mt-4 text-slate-700 font-black">暂无可排行的资源统计</div>
+                                <div className="mt-1 text-sm text-slate-500 font-semibold">启用媒体库资源统计并刷新后，会在这里显示每日增长排序。</div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="dashboard-row p-4 rounded-2xl">
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">参与排行</div>
+                                        <div className="mt-1 text-2xl font-black text-slate-800 tabular-nums">{mediaGrowthRows.length}</div>
+                                    </div>
+                                    <div className="dashboard-row p-4 rounded-2xl">
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">榜首增长</div>
+                                        <div className="mt-1 text-2xl font-black text-emerald-600 tabular-nums">{formatSignedCount(mediaGrowthRows[0].sortValue)}</div>
+                                    </div>
+                                    <div className="dashboard-row p-4 rounded-2xl">
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">合计增长</div>
+                                        <div className={"mt-1 text-2xl font-black tabular-nums " + (mediaGrowthTotal > 0 ? 'text-emerald-600' : mediaGrowthTotal < 0 ? 'text-rose-600' : 'text-slate-500')}>{formatSignedCount(mediaGrowthTotal)}</div>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col gap-3">
+                                    {mediaGrowthRows.map((row, index) => {
+                                        const s = row.server;
+                                        const iconImg = getDisplayIcon(s);
+                                        const rankTone = index === 0 ? 'bg-emerald-500 text-white border-emerald-400' : index === 1 ? 'bg-blue-500 text-white border-blue-400' : index === 2 ? 'bg-amber-500 text-white border-amber-400' : 'bg-white/70 text-slate-500 border-white';
+                                        const valueTone = row.sortValue > 0 ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : row.sortValue < 0 ? 'text-rose-600 bg-rose-50 border-rose-100' : 'text-slate-500 bg-slate-100 border-slate-200';
+                                        return (
+                                            <div key={s.id} className="dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 xl:grid-cols-[minmax(260px,0.38fr)_minmax(0,1fr)_minmax(120px,0.16fr)] gap-4 xl:items-center">
+                                                <div className="flex items-center gap-4 min-w-0">
+                                                    <div className={"w-10 h-10 rounded-2xl border flex items-center justify-center font-black text-sm shadow-sm flex-shrink-0 tabular-nums " + rankTone}>#{index + 1}</div>
+                                                    <div className="w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center font-black text-xl text-slate-600 overflow-hidden flex-shrink-0">
+                                                        {hideServerName ? <Icons.Server className="w-5 h-5" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-1.5" onError={(e) => {e.target.style.display='none'}} /> : s.name[0])}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="font-black text-slate-800 text-lg truncate tracking-tight">{hideServerName ? 'Node Hidden' : s.name}</div>
+                                                        <div className="mt-1 text-[11px] text-slate-400 font-mono font-semibold truncate">{hideServerUrl ? 'https://****.****' : stripProtocol(s.url)}</div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-3 gap-2 min-w-0">
+                                                    {[
+                                                        { label: '电影', key: 'movie', icon: Icons.Film },
+                                                        { label: '剧集', key: 'series', icon: Icons.Tv },
+                                                        { label: '单集', key: 'episode', icon: Icons.PlaySquare }
+                                                    ].map((item) => {
+                                                        const ItemIcon = item.icon;
+                                                        const delta = row.deltas[item.key];
+                                                        const count = s.mediaStats && s.mediaStats.counts ? s.mediaStats.counts[item.key] : 0;
+                                                        return (
+                                                            <div key={item.key} className="rounded-2xl bg-white/50 border border-white px-3 py-2 min-w-0">
+                                                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-black">
+                                                                    <ItemIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                                                                    <span className="truncate">{item.label}</span>
+                                                                </div>
+                                                                <div className="mt-1 flex items-baseline justify-between gap-2">
+                                                                    <span className="text-sm font-black text-slate-700 tabular-nums truncate">{count}</span>
+                                                                    <span className={"text-[11px] font-black tabular-nums " + (delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-slate-400')}>{formatSignedCount(delta)}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                <div className="xl:text-right">
+                                                    <div className={"inline-flex min-w-[96px] items-center justify-center px-4 py-2.5 rounded-2xl border text-xl font-black tabular-nums " + valueTone}>
+                                                        {formatSignedCount(row.sortValue)}
+                                                    </div>
+                                                    <div className="mt-1 text-[10px] text-slate-400 font-bold uppercase tracking-widest xl:text-center">当前 {row.currentValue}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
