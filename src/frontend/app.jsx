@@ -32,15 +32,13 @@ const App = () => {
     const [addForm, setAddForm] = useState({ name: '', protocol: 'https://', host: '', port: '443' });
     const [fallbackUrls, setFallbackUrls] = useState([]);
     const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
-    const [keepAliveForm, setKeepAliveForm] = useState({ enabled: false, periodDays: '', alertDays: '', sessionsEnabled: false });
+    const [keepAliveForm, setKeepAliveForm] = useState({ enabled: false, periodDays: '', alertDays: '' });
     const [quickImportText, setQuickImportText] = useState('');
     const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
     const [loggingEnabled, setLoggingEnabled] = useState(false);
-    const [sessionsLastPlayedEnabled, setSessionsLastPlayedEnabled] = useState(false);
     const [runtimeLogs, setRuntimeLogs] = useState([]);
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
     const [isSavingLogging, setIsSavingLogging] = useState(false);
-    const [isSavingSessionsLastPlayed, setIsSavingSessionsLastPlayed] = useState(false);
     const [isTestingTelegram, setIsTestingTelegram] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('cards');
@@ -139,7 +137,6 @@ const App = () => {
             configUpdatedAtRef.current = nextUpdatedAt;
             configRevisionRef.current = nextRevision;
             setNotifyEnabled(Boolean(data.notifyEnabled));
-            setSessionsLastPlayedEnabled(Boolean(data.sessionsLastPlayed && data.sessionsLastPlayed.enabled));
             setTelegramForm(data.telegram || { enabled: false, botToken: '', chatId: '' });
             setLoggingEnabled(Boolean(data.logging && data.logging.enabled));
             if (data.icons) {
@@ -195,9 +192,6 @@ const App = () => {
     useEffect(() => { localStorage.setItem('growth_metric', growthMetric); }, [growthMetric]);
 
     const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
-        const effectiveSessionsLastPlayedEnabled = Object.prototype.hasOwnProperty.call(options, 'sessionsLastPlayedEnabled')
-            ? Boolean(options.sessionsLastPlayedEnabled)
-            : sessionsLastPlayedEnabled;
         const serverById = new Map(servers.map(s => [s.id, s]));
         const mergedServers = newServers.map((server) => {
             const existing = serverById.get(server.id);
@@ -208,7 +202,7 @@ const App = () => {
             const nextUpdatedAt = Date.now();
             setConfigUpdatedAt(nextUpdatedAt);
             configUpdatedAtRef.current = nextUpdatedAt;
-            const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: serversToSave, icons: iconsToSave, telegram: telegramToSave, logging: { enabled: loggingEnabled }, sessionsLastPlayed: { enabled: effectiveSessionsLastPlayedEnabled }, updatedAt: nextUpdatedAt, baseRevision }) });
+            const res = await apiFetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servers: serversToSave, icons: iconsToSave, telegram: telegramToSave, logging: { enabled: loggingEnabled }, updatedAt: nextUpdatedAt, baseRevision }) });
             const saveResult = await res.json().catch(() => ({}));
             return { res, saveResult, nextUpdatedAt };
         };
@@ -274,7 +268,6 @@ const App = () => {
                 setIconLib(updatedData.icons);
                 setTelegramForm(updatedData.telegram || telegramForm);
                 if (updatedData.logging) setLoggingEnabled(Boolean(updatedData.logging.enabled));
-                if (updatedData.sessionsLastPlayed) setSessionsLastPlayedEnabled(Boolean(updatedData.sessionsLastPlayed.enabled));
                 const nextUpdatedAt = Number(updatedData.updatedAt) || configUpdatedAtRef.current;
                 const nextRevision = updatedData.revision || configRevisionRef.current;
                 setConfigUpdatedAt(nextUpdatedAt);
@@ -311,7 +304,6 @@ const App = () => {
             if (data.icons) setIconLib(data.icons);
             if (data.telegram) setTelegramForm(data.telegram);
             if (data.logging) setLoggingEnabled(Boolean(data.logging.enabled));
-            if (data.sessionsLastPlayed) setSessionsLastPlayedEnabled(Boolean(data.sessionsLastPlayed.enabled));
             const nextUpdatedAt = Number(data.updatedAt) || configUpdatedAtRef.current;
             const nextRevision = data.revision || configRevisionRef.current;
             setConfigUpdatedAt(nextUpdatedAt);
@@ -341,19 +333,6 @@ const App = () => {
     const formatShareExpires = (value) => {
         const time = Number(value) || 0;
         return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '永久有效';
-    };
-    const formatLastPlayedText = (server) => {
-        const lastPlayed = server && server.mediaStats ? server.mediaStats.lastPlayed : null;
-        const lastPlayedAt = Number(lastPlayed && lastPlayed.lastPlayedAt) || 0;
-        if (!lastPlayedAt) return '';
-        const playedText = new Date(lastPlayedAt).toLocaleString('zh-CN', {
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-        });
-        return '上次活动 ' + playedText;
     };
     const copyText = async (text, label = '内容') => {
         try {
@@ -495,7 +474,7 @@ const App = () => {
         setAddForm({ name: '', protocol: 'https://', host: '', port: '443' });
         setFallbackUrls([]);
         setMediaForm({ enabled: false, username: '', password: '' });
-        setKeepAliveForm({ enabled: false, periodDays: '', alertDays: '', sessionsEnabled: false });
+        setKeepAliveForm({ enabled: false, periodDays: '', alertDays: '' });
         setQuickImportText('');
         setEditingServerId(null);
     };
@@ -642,8 +621,7 @@ const App = () => {
         setKeepAliveForm({
             enabled: Boolean(keepAlive.enabled),
             periodDays: keepAlive.enabled && keepAlive.periodDays ? String(keepAlive.periodDays) : '',
-            alertDays: keepAlive.enabled && keepAlive.alertDays ? String(keepAlive.alertDays) : '',
-            sessionsEnabled: Boolean(keepAlive.sessionsEnabled)
+            alertDays: keepAlive.enabled && keepAlive.alertDays ? String(keepAlive.alertDays) : ''
         });
         setIsAddModalOpen(true);
         if (focusKeepAlive) {
@@ -691,12 +669,9 @@ const App = () => {
                     enabled: Boolean(keepAliveForm.enabled),
                     periodDays: keepAliveForm.enabled ? keepAlivePeriodDays : 30,
                     alertDays: keepAliveForm.enabled ? keepAliveAlertDays : 27,
-                    sessionsEnabled: Boolean(keepAliveForm.enabled && keepAliveForm.sessionsEnabled),
                     lastPlayedAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.lastPlayedAt || 0) : 0,
                     lastCheckedAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.lastCheckedAt || 0) : 0,
-                    alertSentAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.alertSentAt || 0) : 0,
-                    sessionProbeLastCheckedAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.sessionProbeLastCheckedAt || 0) : 0,
-                    sessionProbeLastHitAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.sessionProbeLastHitAt || 0) : 0
+                    alertSentAt: keepAliveForm.enabled && !credentialsChanged ? (previousKeepAlive.alertSentAt || 0) : 0
                 }
             };
         };
@@ -846,22 +821,6 @@ const App = () => {
             showNotice('日志设置保存失败：' + (e.message || '请稍后重试'));
         } finally {
             setIsSavingLogging(false);
-        }
-    };
-
-    const saveSessionsLastPlayedSetting = async (nextEnabled) => {
-        if (isSavingSessionsLastPlayed) return;
-        const previousEnabled = sessionsLastPlayedEnabled;
-        setSessionsLastPlayedEnabled(Boolean(nextEnabled));
-        setIsSavingSessionsLastPlayed(true);
-        try {
-            await syncToCloud(servers, iconLib, telegramForm, { sessionsLastPlayedEnabled: Boolean(nextEnabled) });
-            showNotice(nextEnabled ? '上次活动时间已开启' : '上次活动时间已关闭');
-        } catch(e) {
-            setSessionsLastPlayedEnabled(previousEnabled);
-            showNotice('上次活动时间保存失败：' + (e.message || '请稍后重试'));
-        } finally {
-            setIsSavingSessionsLastPlayed(false);
         }
     };
 
@@ -1092,27 +1051,28 @@ const App = () => {
                     <div className="mobile-actions flex flex-wrap items-center gap-3">
                         {/* 辅助功能组 (Icon-only) */}
                         <div className="mobile-icon-group flex items-center gap-2 mr-2">
-                            <div className="relative flex items-center gap-1">
+                            <div className="relative" ref={privacyMenuRef}>
                                 <button
-                                    onClick={() => saveSessionsLastPlayedSetting(!sessionsLastPlayedEnabled)}
-                                    disabled={isSavingSessionsLastPlayed}
-                                    title={sessionsLastPlayedEnabled ? '关闭上次活动时间' : '开启上次活动时间'}
-                                    className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 disabled:opacity-60 " + (sessionsLastPlayedEnabled ? "bg-blue-50 text-blue-600 hover:bg-white" : "bg-white/70 text-slate-500 hover:text-blue-600 hover:bg-white")}
+                                    onClick={() => setIsPrivacyMenuOpen(!isPrivacyMenuOpen)}
+                                    title={"隐私显示：" + privacyLabel}
+                                    className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (privacyMode !== 'none' ? "bg-slate-200 text-slate-700 shadow-inner" : "bg-white/70 text-slate-500 hover:text-slate-800 hover:bg-white")}
                                 >
-                                    {sessionsLastPlayedEnabled ? <Icons.Clock className="w-5 h-5" /> : <Icons.ClockOff className="w-5 h-5" />}
+                                    {privacyMode !== 'none' ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
                                 </button>
-                                <div className="relative group">
-                                    <button
-                                        type="button"
-                                        title="非必要请勿开启，建议仅对有保号需求服务器单独开启（ CF 付费版请忽略）"
-                                        className="w-5 h-5 rounded-full border border-slate-200/80 bg-white/70 text-[11px] font-black text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
-                                    >
-                                        ?
-                                    </button>
-                                    <div className="pointer-events-none absolute right-0 top-7 z-50 hidden w-64 rounded-2xl border border-white/80 bg-white/90 px-3 py-2 text-[11px] font-bold leading-5 text-slate-600 shadow-xl backdrop-blur-xl group-hover:block group-focus-within:block">
-                                        非必要请勿开启，建议仅对有保号需求服务器单独开启（ CF 付费版请忽略）
+                                {isPrivacyMenuOpen && (
+                                    <div className="hidden md:block absolute right-0 top-12 z-40 w-44 rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-xl p-1.5">
+                                        {privacyOptions.map((option) => (
+                                            <button
+                                                key={option.mode}
+                                                onClick={() => { setPrivacyMode(option.mode); setIsPrivacyMenuOpen(false); }}
+                                                className={"w-full text-left rounded-xl px-3 py-2 transition-all " + (privacyMode === option.mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/60 hover:text-slate-800")}
+                                            >
+                                                <div className="text-xs font-black">{option.label}</div>
+                                                <div className="text-[10px] font-bold opacity-60 mt-0.5">{option.desc}</div>
+                                            </button>
+                                        ))}
                                     </div>
-                                </div>
+                                )}
                             </div>
                             <button
                                 onClick={() => { setIsSettingsOpen(true); fetchRuntimeLogs(); }}
@@ -1251,11 +1211,6 @@ const App = () => {
                             const isOnline = s.status === 'online';
                             const stats = getAvailabilityStats(s);
                             const keepAliveButton = getKeepAliveButtonState(s);
-                            const keepAlive = s.mediaStats && s.mediaStats.keepAlive ? s.mediaStats.keepAlive : {};
-                            const shouldShowLastPlayed = Boolean(sessionsLastPlayedEnabled && keepAlive.sessionsEnabled);
-                            const lastPlayedText = formatLastPlayedText(s);
-                            const lastPlayedError = (s.mediaStats && s.mediaStats.lastPlayed && s.mediaStats.lastPlayed.lastError) || (s.mediaStats && s.mediaStats.lastError) || '';
-                            const lastPlayedTitle = lastPlayedText || lastPlayedError || '暂无上次活动时间';
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
                                 offline: { text: 'text-rose-700', bg: 'bg-rose-500/10', border: 'border-rose-200', dotClass: 'dot-offline', glowClass: 'glow-offline' },
@@ -1352,16 +1307,6 @@ const App = () => {
                                                     );
                                                 })}
                                             </div>
-                                        </div>
-                                    )}
-
-                                    {shouldShowLastPlayed && (
-                                        <div
-                                            className={"server-card-last-played mt-3 flex max-w-full items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-left relative z-10 text-[11px] leading-4 font-black shadow-sm " + (lastPlayedText ? "bg-sky-50/80 border-sky-100 text-sky-700" : "bg-amber-50/80 border-amber-100 text-amber-700")}
-                                            title={lastPlayedTitle}
-                                        >
-                                            <Icons.PlaySquare className="w-3.5 h-3.5 flex-shrink-0" />
-                                            <span className="truncate">{lastPlayedText || '上次活动 暂无记录'}</span>
                                         </div>
                                     )}
 
@@ -1623,42 +1568,6 @@ const App = () => {
                                 </div>
                                 </div>
 
-                                {/* 上次活动时间 */}
-                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
-                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2 text-slate-700 font-bold">
-                                            <Icons.Clock className="w-4 h-4 text-blue-500" />上次活动时间
-                                        </div>
-                                        <div className="mt-1 text-[11px] font-bold text-slate-500">
-                                            启用后会按保号设置的定时频率刷新卡片上的上次活动时间。
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2 self-start sm:self-auto">
-                                        <button
-                                            type="button"
-                                            onClick={() => saveSessionsLastPlayedSetting(!sessionsLastPlayedEnabled)}
-                                            disabled={isSavingSessionsLastPlayed}
-                                            className={"px-3 py-2 rounded-xl text-xs font-black border transition-colors disabled:opacity-60 " + (sessionsLastPlayedEnabled ? "bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")}
-                                        >
-                                            {isSavingSessionsLastPlayed ? '保存中...' : (sessionsLastPlayedEnabled ? '已开启' : '未开启')}
-                                        </button>
-                                        <div className="relative group">
-                                            <button
-                                                type="button"
-                                                title="非必要请勿开启，建议仅对有保号需求服务器单独开启（ CF 付费版请忽略）"
-                                                className="w-5 h-5 rounded-full border border-slate-200/80 bg-white/70 text-[11px] font-black text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
-                                            >
-                                                ?
-                                            </button>
-                                            <div className="pointer-events-none absolute right-0 top-7 z-50 hidden w-64 rounded-2xl border border-white/80 bg-white/90 px-3 py-2 text-[11px] font-bold leading-5 text-slate-600 shadow-xl backdrop-blur-xl group-hover:block group-focus-within:block">
-                                                非必要请勿开启，建议仅对有保号需求服务器单独开启（ CF 付费版请忽略）
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                </div>
-
                                 {/* 运行日志 */}
                                 <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
                                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
@@ -1876,24 +1785,15 @@ const App = () => {
                                     </label>
                                 </div>
                                 {keepAliveForm.enabled && (
-                                    <div className="space-y-3 pt-2">
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">活跃周期（天）</label>
-                                                <input type="text" inputMode="numeric" value={keepAliveForm.periodDays} onChange={e=>setKeepAliveForm({...keepAliveForm, periodDays: cleanPositiveIntInput(e.target.value)})} placeholder="例如：30" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">提前提醒（天）</label>
-                                                <input type="text" inputMode="numeric" value={keepAliveForm.alertDays} onChange={e=>setKeepAliveForm({...keepAliveForm, alertDays: cleanPositiveIntInput(e.target.value)})} placeholder="例如：27" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
-                                            </div>
+                                    <div className="grid grid-cols-2 gap-3 pt-2">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">活跃周期（天）</label>
+                                            <input type="text" inputMode="numeric" value={keepAliveForm.periodDays} onChange={e=>setKeepAliveForm({...keepAliveForm, periodDays: cleanPositiveIntInput(e.target.value)})} placeholder="例如：30" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
                                         </div>
-                                        <label className="flex items-start justify-between gap-3 rounded-2xl bg-white/50 border border-white px-4 py-3 text-xs font-bold text-slate-600 cursor-pointer">
-                                            <span className="min-w-0">
-                                                <span className="block text-slate-700">启用上次活动时间</span>
-                                                <span className="mt-0.5 block text-[11px] leading-5 text-slate-400">仅此服务器参与 Sessions 查询，并在卡片显示上次活动。</span>
-                                            </span>
-                                            <input type="checkbox" checked={Boolean(keepAliveForm.sessionsEnabled)} onChange={e=>setKeepAliveForm({...keepAliveForm, sessionsEnabled: e.target.checked})} className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 flex-shrink-0" />
-                                        </label>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">提前提醒（天）</label>
+                                            <input type="text" inputMode="numeric" value={keepAliveForm.alertDays} onChange={e=>setKeepAliveForm({...keepAliveForm, alertDays: cleanPositiveIntInput(e.target.value)})} placeholder="例如：27" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
+                                        </div>
                                     </div>
                                 )}
                                 </div>
