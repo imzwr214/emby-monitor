@@ -1398,6 +1398,82 @@ export default {
         throw new Error(lastError);
     },
 
+    /* trial: sessions-last-played */
+    async fetchEmbyActiveSessionLastPlayed(server, token, userId, options = {}) {
+        if (!userId) throw new Error('未获取到媒体库 UserId');
+        const bases = this.getEmbyApiBases(server);
+        const debugEnabled = Boolean(options.debug);
+        const debug = [];
+        const parseEmbyDate = (value) => {
+            const text = String(value || '').trim();
+            if (!text) return 0;
+            const normalized = /(?:z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : text + 'Z';
+            const time = Date.parse(normalized);
+            return Number.isFinite(time) && time > 0 ? time : 0;
+        };
+        const buildSessionSummary = (session) => {
+            if (!session || typeof session !== 'object') return null;
+            const nowPlayingItem = session.NowPlayingItem && typeof session.NowPlayingItem === 'object' ? session.NowPlayingItem : null;
+            return {
+                sessionId: session.Id || '',
+                userId: session.UserId || '',
+                userName: session.UserName || '',
+                lastActivityDate: session.LastActivityDate || '',
+                nowPlayingItem: nowPlayingItem ? {
+                    id: nowPlayingItem.Id || '',
+                    name: nowPlayingItem.Name || '',
+                    type: nowPlayingItem.Type || '',
+                    mediaType: nowPlayingItem.MediaType || '',
+                    playStatePositionTicks: session.PlayState && Number.isFinite(Number(session.PlayState.PositionTicks)) ? Number(session.PlayState.PositionTicks) : 0
+                } : null
+            };
+        };
+        for (const base of bases) {
+            try {
+                const response = await this.fetchWithTimeout(base + '/Sessions', { method: 'GET', headers: this.buildEmbyClientHeaders(server, token) }, 8000);
+                if (!response.ok) {
+                    const detail = await this.readShortResponse(response);
+                    if (debugEnabled) debug.push({ base, endpoint: 'sessions', status: response.status, ok: false, error: 'Sessions 查询失败 HTTP ' + response.status + (detail ? ' / ' + detail : '') });
+                    continue;
+                }
+                const responseText = await response.text();
+                const data = JSON.parse(responseText);
+                const sessions = Array.isArray(data) ? data : (Array.isArray(data.Sessions) ? data.Sessions : []);
+                const matches = sessions.filter((session) => String(session && session.UserId || '') === String(userId) && session && session.NowPlayingItem);
+                const active = matches.find((session) => {
+                    const playState = session && session.PlayState && typeof session.PlayState === 'object' ? session.PlayState : null;
+                    return !playState || !Number.isFinite(Number(playState.PositionTicks)) || Number(playState.PositionTicks) >= 0;
+                }) || matches[0] || null;
+                if (debugEnabled) {
+                    debug.push({
+                        base,
+                        endpoint: 'sessions',
+                        status: response.status,
+                        ok: true,
+                        sessionCount: sessions.length,
+                        matchCount: matches.length,
+                        activeSession: buildSessionSummary(active),
+                        samples: sessions.slice(0, 3).map(buildSessionSummary).filter(Boolean),
+                        responsePreview: responseText.slice(0, 500)
+                    });
+                }
+                if (active) {
+                    const item = active.NowPlayingItem || {};
+                    return {
+                        lastPlayedAt: Date.now(),
+                        sessionLastActivityAt: parseEmbyDate(active.LastActivityDate),
+                        item: { id: item.Id || '', name: item.Name || '', type: item.Type || '' },
+                        source: 'sessions',
+                        debug
+                    };
+                }
+            } catch(e) {
+                if (debugEnabled) debug.push({ base, endpoint: 'sessions', status: 0, ok: false, error: e.name === 'AbortError' ? 'Sessions 查询超时' : (e.message || 'Sessions 查询失败') });
+            }
+        }
+        return { lastPlayedAt: 0, item: null, source: 'sessions', debug };
+    },
+
     async fetchEmbyLastPlayed(server, token, userId, options = {}) {
         if (!userId) throw new Error('未获取到媒体库 UserId');
         const bases = this.getEmbyApiBases(server);
@@ -1694,6 +1770,37 @@ export default {
             const login = await this.loginEmbyForMedia(server);
             token = login.accessToken;
             userId = login.userId || userId;
+            /* trial: sessions-last-played */
+            if (force) {
+                const sessionResult = await this.fetchEmbyActiveSessionLastPlayed(server, token, userId, { debug });
+                if (sessionResult && sessionResult.lastPlayedAt) {
+                    const lastPlayed = {
+                        lastPlayedAt: Number(sessionResult.lastPlayedAt) || now,
+                        item: sessionResult.item || null,
+                        checkedAt: now,
+                        lastError: ''
+                    };
+                    if (debug) {
+                        await this.appendRuntimeLog(env, 'info', 'media.lastPlayed.sessionsTrial', 'Sessions 试验命中当前播放', {
+                            serverId: server.id,
+                            serverName: server.name,
+                            userId,
+                            lastPlayedAt: lastPlayed.lastPlayedAt,
+                            item: lastPlayed.item || null,
+                            debug: sessionResult.debug || []
+                        }, { force: true });
+                    }
+                    return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed } }, touched: true };
+                }
+                if (debug) {
+                    await this.appendRuntimeLog(env, 'info', 'media.lastPlayed.sessionsTrial', 'Sessions 试验未发现当前播放', {
+                        serverId: server.id,
+                        serverName: server.name,
+                        userId,
+                        debug: sessionResult && sessionResult.debug ? sessionResult.debug : []
+                    }, { force: true });
+                }
+            }
             const result = await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: true, includeItem: true, debug });
             const lastPlayed = {
                 lastPlayedAt: Number(result.lastPlayedAt) || 0,

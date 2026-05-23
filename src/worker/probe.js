@@ -177,6 +177,37 @@
           const login = await this.loginEmbyForMedia(server);
           token = login.accessToken;
           userId = login.userId || userId;
+          /* trial: sessions-last-played */
+          if (force) {
+              const sessionResult = await this.fetchEmbyActiveSessionLastPlayed(server, token, userId, { debug });
+              if (sessionResult && sessionResult.lastPlayedAt) {
+                  const lastPlayed = {
+                      lastPlayedAt: Number(sessionResult.lastPlayedAt) || now,
+                      item: sessionResult.item || null,
+                      checkedAt: now,
+                      lastError: ''
+                  };
+                  if (debug) {
+                      await this.appendRuntimeLog(env, 'info', 'media.lastPlayed.sessionsTrial', 'Sessions 试验命中当前播放', {
+                          serverId: server.id,
+                          serverName: server.name,
+                          userId,
+                          lastPlayedAt: lastPlayed.lastPlayedAt,
+                          item: lastPlayed.item || null,
+                          debug: sessionResult.debug || []
+                      }, { force: true });
+                  }
+                  return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed } }, touched: true };
+              }
+              if (debug) {
+                  await this.appendRuntimeLog(env, 'info', 'media.lastPlayed.sessionsTrial', 'Sessions 试验未发现当前播放', {
+                      serverId: server.id,
+                      serverName: server.name,
+                      userId,
+                      debug: sessionResult && sessionResult.debug ? sessionResult.debug : []
+                  }, { force: true });
+              }
+          }
           const result = await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: true, includeItem: true, debug });
           const lastPlayed = {
               lastPlayedAt: Number(result.lastPlayedAt) || 0,
