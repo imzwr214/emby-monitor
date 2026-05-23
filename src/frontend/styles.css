@@ -512,9 +512,10 @@ body {
         bottom: calc(14px + env(safe-area-inset-bottom));
         transform: translateX(-50%);
         z-index: 45;
-        width: min(94vw, 390px);
+        width: min(calc(100vw - 18px), 460px);
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 4px;
         border-radius: 999px;
         padding: 4px;
         background: linear-gradient(180deg, rgba(255,255,255,0.74), rgba(255,255,255,0.42));
@@ -535,6 +536,7 @@ body {
         white-space: normal;
         text-align: center;
         min-width: 0;
+        width: 100%;
     }
     .mobile-tab-nav .tab-btn svg {
         width: 17px;
