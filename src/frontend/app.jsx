@@ -1153,10 +1153,14 @@ const App = () => {
                             <Icons.LayoutGrid className="w-4 h-4" /> 看板
                         </button>
                         <button onClick={() => setActiveTab('growth')} className={"tab-btn " + (activeTab === 'growth' ? 'active' : '')}>
-                            <Icons.TrendingUp className="w-4 h-4" /> 资源增长榜
+                            <Icons.TrendingUp className="w-4 h-4" />
+                            <span className="mobile-tab-full">资源增长榜</span>
+                            <span className="mobile-tab-short">增长</span>
                         </button>
                         <button onClick={() => setActiveTab('dashboard')} className={"tab-btn " + (activeTab === 'dashboard' ? 'active' : '')}>
-                            <Icons.Activity className="w-4 h-4" /> 历史大盘
+                            <Icons.Activity className="w-4 h-4" />
+                            <span className="mobile-tab-full">历史大盘</span>
+                            <span className="mobile-tab-short">历史</span>
                         </button>
                     </div>
 
@@ -1371,9 +1375,9 @@ const App = () => {
 
                 {/* Growth Ranking View */}
                 {activeTab === 'growth' && filteredServers.length > 0 && (
-                    <div className="mobile-dashboard dashboard-shell rounded-[2rem] p-5 flex flex-col gap-4 relative overflow-hidden">
+                    <div className="mobile-dashboard growth-dashboard dashboard-shell rounded-[2rem] p-5 flex flex-col gap-4 relative overflow-hidden">
                         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent pointer-events-none"></div>
-                        <div className="dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(220px,0.28fr)_minmax(0,1fr)] gap-4 lg:items-center">
+                        <div className="growth-header-row dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(220px,0.28fr)_minmax(0,1fr)] gap-4 lg:items-center">
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2 text-slate-800 font-black text-xl tracking-tight">
                                     <Icons.TrendingUp className="w-5 h-5 text-emerald-500" />
@@ -1410,41 +1414,41 @@ const App = () => {
                             </div>
                         ) : (
                             <>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div className="dashboard-row p-4 rounded-2xl">
+                                <div className="growth-summary-grid grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="growth-summary-card dashboard-row p-4 rounded-2xl">
                                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">参与排行</div>
                                         <div className="mt-1 text-2xl font-black text-slate-800 tabular-nums">{mediaGrowthRows.length}</div>
                                     </div>
-                                    <div className="dashboard-row p-4 rounded-2xl">
+                                    <div className="growth-summary-card dashboard-row p-4 rounded-2xl">
                                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">榜首增长</div>
                                         <div className="mt-1 text-2xl font-black text-emerald-600 tabular-nums">{formatSignedCount(mediaGrowthRows[0].sortValue)}</div>
                                     </div>
-                                    <div className="dashboard-row p-4 rounded-2xl">
+                                    <div className="growth-summary-card dashboard-row p-4 rounded-2xl">
                                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">合计增长</div>
                                         <div className={"mt-1 text-2xl font-black tabular-nums " + (mediaGrowthTotal > 0 ? 'text-emerald-600' : mediaGrowthTotal < 0 ? 'text-rose-600' : 'text-slate-500')}>{formatSignedCount(mediaGrowthTotal)}</div>
                                     </div>
                                 </div>
 
-                                <div className="flex flex-col gap-3">
+                                <div className="growth-list flex flex-col gap-3">
                                     {mediaGrowthRows.map((row, index) => {
                                         const s = row.server;
                                         const iconImg = getDisplayIcon(s);
                                         const rankTone = index === 0 ? 'bg-emerald-500 text-white border-emerald-400' : index === 1 ? 'bg-blue-500 text-white border-blue-400' : index === 2 ? 'bg-amber-500 text-white border-amber-400' : 'bg-white/70 text-slate-500 border-white';
                                         const valueTone = row.sortValue > 0 ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : row.sortValue < 0 ? 'text-rose-600 bg-rose-50 border-rose-100' : 'text-slate-500 bg-slate-100 border-slate-200';
                                         return (
-                                            <div key={s.id} className="dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 xl:grid-cols-[minmax(260px,0.38fr)_minmax(0,1fr)_minmax(120px,0.16fr)] gap-4 xl:items-center">
-                                                <div className="flex items-center gap-4 min-w-0">
-                                                    <div className={"w-10 h-10 rounded-2xl border flex items-center justify-center font-black text-sm shadow-sm flex-shrink-0 tabular-nums " + rankTone}>#{index + 1}</div>
-                                                    <div className="w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center font-black text-xl text-slate-600 overflow-hidden flex-shrink-0">
+                                            <div key={s.id} className="growth-rank-row dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 xl:grid-cols-[minmax(260px,0.38fr)_minmax(0,1fr)_minmax(120px,0.16fr)] gap-4 xl:items-center">
+                                                <div className="growth-rank-main flex items-center gap-4 min-w-0">
+                                                    <div className={"growth-rank-badge w-10 h-10 rounded-2xl border flex items-center justify-center font-black text-sm shadow-sm flex-shrink-0 tabular-nums " + rankTone}>#{index + 1}</div>
+                                                    <div className="growth-server-icon w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center font-black text-xl text-slate-600 overflow-hidden flex-shrink-0">
                                                         {hideServerName ? <Icons.Server className="w-5 h-5" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-1.5" onError={(e) => {e.target.style.display='none'}} /> : s.name[0])}
                                                     </div>
-                                                    <div className="min-w-0">
+                                                    <div className="growth-server-name min-w-0">
                                                         <div className="font-black text-slate-800 text-lg truncate tracking-tight">{hideServerName ? 'Node Hidden' : s.name}</div>
                                                         <div className="mt-1 text-[11px] text-slate-400 font-mono font-semibold truncate">{hideServerUrl ? 'https://****.****' : stripProtocol(s.url)}</div>
                                                     </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-3 gap-2 min-w-0">
+                                                <div className="growth-metric-grid grid grid-cols-3 gap-2 min-w-0">
                                                     {[
                                                         { label: '电影', key: 'movie', icon: Icons.Film },
                                                         { label: '剧集', key: 'series', icon: Icons.Tv },
@@ -1454,7 +1458,7 @@ const App = () => {
                                                         const delta = row.deltas[item.key];
                                                         const count = s.mediaStats && s.mediaStats.counts ? s.mediaStats.counts[item.key] : 0;
                                                         return (
-                                                            <div key={item.key} className="rounded-2xl bg-white/50 border border-white px-3 py-2 min-w-0">
+                                                            <div key={item.key} className="growth-metric-card rounded-2xl bg-white/50 border border-white px-3 py-2 min-w-0">
                                                                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-black">
                                                                     <ItemIcon className="w-3.5 h-3.5 flex-shrink-0" />
                                                                     <span className="truncate">{item.label}</span>
@@ -1468,8 +1472,8 @@ const App = () => {
                                                     })}
                                                 </div>
 
-                                                <div className="xl:text-right">
-                                                    <div className={"inline-flex min-w-[96px] items-center justify-center px-4 py-2.5 rounded-2xl border text-xl font-black tabular-nums " + valueTone}>
+                                                <div className="growth-total-cell xl:text-right">
+                                                    <div className={"growth-total-pill inline-flex min-w-[96px] items-center justify-center px-4 py-2.5 rounded-2xl border text-xl font-black tabular-nums " + valueTone}>
                                                         {formatSignedCount(row.sortValue)}
                                                     </div>
                                                     <div className="mt-1 text-[10px] text-slate-400 font-bold uppercase tracking-widest xl:text-center">当前 {row.currentValue}</div>
