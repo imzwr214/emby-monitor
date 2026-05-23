@@ -166,7 +166,7 @@
       return this.getShanghaiDayKey(lastPlayed.checkedAt) !== this.getShanghaiDayKey(now);
   },
 
-  async refreshLastPlayedIfNeeded(server, force = false, now = Date.now()) {
+  async refreshLastPlayedIfNeeded(env, server, force = false, now = Date.now(), debug = false) {
       const media = server.mediaStats || {};
       if (!media.enabled || !media.username) return { server, touched: false };
       if (!force && !this.shouldRefreshLastPlayed(media, now)) return { server, touched: false };
@@ -177,15 +177,34 @@
           const login = await this.loginEmbyForMedia(server);
           token = login.accessToken;
           userId = login.userId || userId;
-          const result = await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: true, includeItem: true });
+          const result = await this.fetchEmbyLastPlayed(server, token, userId, { deepScan: true, includeItem: true, debug });
           const lastPlayed = {
               lastPlayedAt: Number(result.lastPlayedAt) || 0,
               item: result.item || null,
               checkedAt: now,
               lastError: ''
           };
+          if (debug) {
+              await this.appendRuntimeLog(env, 'info', 'media.lastPlayed.lookup', '上次播放查询完成', {
+                  serverId: server.id,
+                  serverName: server.name,
+                  userId,
+                  lastPlayedAt: lastPlayed.lastPlayedAt,
+                  item: lastPlayed.item || null,
+                  debug: result.debug || []
+              }, { force: true });
+          }
           return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed } }, touched: true };
       } catch(e) {
+          if (debug) {
+              await this.appendRuntimeLog(env, 'warn', 'media.lastPlayed.lookup', '上次播放查询失败', {
+                  serverId: server.id,
+                  serverName: server.name,
+                  userId,
+                  error: e.message || '上次播放读取失败',
+                  debug: e && e.debug ? e.debug : []
+              }, { force: true });
+          }
           return {
               server: { ...server, mediaStats: { ...media, accessToken: token, userId, lastPlayed: { ...previousLastPlayed, lastError: e.message || '上次观看读取失败' } } },
               touched: true
@@ -297,7 +316,7 @@
           s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
           s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
           await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
-          const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
+          const lastPlayedResult = await this.refreshLastPlayedIfNeeded(env, s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt, Boolean(forceMedia));
           s = lastPlayedResult.server;
           s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
           s.previousStatus = previousStatus; return s;
@@ -340,7 +359,7 @@
       s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
       s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
       await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
-      const lastPlayedResult = await this.refreshLastPlayedIfNeeded(s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt);
+      const lastPlayedResult = await this.refreshLastPlayedIfNeeded(env, s, Boolean(forceMedia) || this.shouldRefreshLastPlayed(s.mediaStats, checkedAt), checkedAt, Boolean(forceMedia));
       s = lastPlayedResult.server;
       s.mediaStatsTouched = Boolean(s.mediaStatsTouched || lastPlayedResult.touched);
       s.previousStatus = previousStatus; return s;
