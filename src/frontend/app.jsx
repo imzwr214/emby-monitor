@@ -28,7 +28,7 @@ const App = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [refreshMode, setRefreshMode] = useState('');
     const [refreshingLastPlayedId, setRefreshingLastPlayedId] = useState(null);
-    const [isMobileControlsOpen, setIsMobileControlsOpen] = useState(false);
+    const [isHeaderOpen, setIsHeaderOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isSavingServer, setIsSavingServer] = useState(false);
@@ -1187,49 +1187,23 @@ const App = () => {
             </div>
 
             <div className="mobile-page w-full max-w-[1600px] mx-auto px-4 py-8 md:px-8 md:py-12 relative z-10">
-                <header className="hidden lg:grid grid-cols-[1fr_auto_1fr] items-center gap-6 sticky top-4 z-50 mb-10 nav-header">
-                    <div className="flex items-center gap-3 justify-self-start min-w-0">
+                <header className="nav-header flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] items-center gap-4 lg:gap-6 sticky top-2 lg:top-4 z-50 mb-6 lg:mb-10 w-full">
+                    <div className={"order-1 lg:order-1 items-center gap-3 justify-self-start min-w-0 w-full lg:w-auto " + (isHeaderOpen ? 'flex' : 'hidden lg:flex')}>
                         <div className="brand-icon-shell w-14 h-14 rounded-[1.1rem] backdrop-blur-sm flex items-center justify-center flex-shrink-0">
                             <Icons.Cloud className="w-8 h-8 text-sky-500 drop-shadow-sm" />
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 truncate text-left">
                             <h1 className="text-2xl xl:text-3xl font-black tracking-tight flex items-center gap-3 min-w-0">
                                 <span className="brand-title truncate">Emby 服务器探针</span>
                             </h1>
                             <p className="mobile-subtitle text-[11px] text-slate-500 font-bold tracking-widest mt-2 uppercase flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full dot-online"></span>
-                                Emby server probe
+                                <span className="w-2 h-2 rounded-full dot-online flex-shrink-0"></span>
+                                <span className="truncate">Emby server probe</span>
                             </p>
                         </div>
                     </div>
 
-                    <div className="justify-self-center">
-                        <div className="tab-nav-center p-1.5 rounded-full flex gap-1 items-center w-full md:w-auto glass-panel bg-white/40">
-                        <button
-                            onClick={() => setActiveTab('cards')}
-                            className={"whitespace-nowrap flex-shrink-0 justify-center px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'cards' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
-                        >
-                            <Icons.LayoutGrid className="w-4 h-4" />
-                            看板
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('growth')}
-                            className={"whitespace-nowrap flex-shrink-0 justify-center px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'growth' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
-                        >
-                            <Icons.TrendingUp className="w-4 h-4" />
-                            资源增长榜
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('dashboard')}
-                            className={"whitespace-nowrap flex-shrink-0 justify-center px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'dashboard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
-                        >
-                            <Icons.Activity className="w-4 h-4" />
-                            历史大盘
-                        </button>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 justify-self-end">
+                    <div className={"order-2 lg:order-3 items-center justify-start lg:justify-end w-full lg:w-auto gap-2 flex-wrap lg:flex-nowrap lg:justify-self-end " + (isHeaderOpen ? 'flex' : 'hidden lg:flex')}>
                         <div className="mobile-icon-group flex items-center gap-2 flex-shrink-0">
                             <div className="relative" ref={privacyMenuRef}>
                                 <button
@@ -1278,13 +1252,13 @@ const App = () => {
                             </button>
                         </div>
 
-                        <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="whitespace-nowrap flex-shrink-0 mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
+                        <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="whitespace-nowrap flex-shrink-0 w-full sm:w-auto mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
                             <Icons.Plus className="w-4 h-4" /> 添加服务器
                         </button>
                         <button
                             onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: false, refreshLastPlayed: false })}
                             disabled={isRefreshing}
-                            className="whitespace-nowrap flex-shrink-0 mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2"
+                            className="whitespace-nowrap flex-shrink-0 w-full sm:w-auto mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2"
                         >
                             <Icons.RefreshCw className={"w-4 h-4 " + (refreshMode === 'probe' ? 'animate-spin' : '')} />
                             <span className="inline-flex items-center justify-center tabular-nums">
@@ -1292,67 +1266,40 @@ const App = () => {
                             </span>
                         </button>
                     </div>
-                </header>
 
-                <header className="nav-header sticky top-2 z-50 mb-6 flex lg:hidden flex-col items-center justify-between gap-4">
-                    <div className="mobile-title-row flex items-center gap-3 w-full">
-                        <div className="brand-icon-shell w-14 h-14 rounded-[1.1rem] backdrop-blur-sm flex items-center justify-center flex-shrink-0">
-                            <Icons.Cloud className="w-8 h-8 text-sky-500 drop-shadow-sm" />
-                        </div>
-                        <div className="min-w-0">
-                            <h1 className="text-3xl md:text-4xl font-black tracking-tight flex items-center gap-3 min-w-0">
-                                <span className="brand-title truncate">Emby 服务器探针</span>
-                            </h1>
-                            <p className="mobile-subtitle text-[11px] text-slate-500 font-bold tracking-widest mt-2 uppercase flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full dot-online"></span>
-                                Emby server probe
-                            </p>
-                        </div>
+                    <div
+                        className="order-3 lg:hidden flex items-center justify-center py-2 w-full cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+                        onClick={() => setIsHeaderOpen(!isHeaderOpen)}
+                    >
+                        <div className="flex-1 h-px bg-slate-300/40"></div>
+                        <Icons.ChevronDown className={"w-4 h-4 mx-2 text-slate-400 transition-transform duration-300 " + (isHeaderOpen ? "rotate-180" : "")} />
+                        <div className="flex-1 h-px bg-slate-300/40"></div>
                     </div>
 
-                    <div className="flex justify-center w-full">
-                        <div className="tab-nav-center p-1.5 rounded-full flex gap-1 items-center w-full glass-panel bg-white/40">
-                            <button onClick={() => setActiveTab('cards')} className={"flex-1 justify-center px-4 sm:px-6 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap " + (activeTab === 'cards' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}>
+                    <div className="order-4 lg:order-2 flex justify-center w-full lg:w-auto justify-self-center">
+                        <div className="tab-nav-center p-1.5 rounded-[20px] flex gap-1 items-center w-full lg:w-auto bg-white/40 backdrop-blur-xl border border-white/70 shadow-sm">
+                            <button
+                                onClick={() => setActiveTab('cards')}
+                                className={"flex-1 lg:flex-none whitespace-nowrap flex-shrink-0 justify-center px-4 sm:px-6 lg:px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'cards' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
+                            >
                                 <Icons.LayoutGrid className="w-4 h-4" />
                                 看板
                             </button>
-                            <button onClick={() => setActiveTab('growth')} className={"flex-1 justify-center px-4 sm:px-6 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap " + (activeTab === 'growth' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}>
+                            <button
+                                onClick={() => setActiveTab('growth')}
+                                className={"flex-1 lg:flex-none whitespace-nowrap flex-shrink-0 justify-center px-4 sm:px-6 lg:px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'growth' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
+                            >
                                 <Icons.TrendingUp className="w-4 h-4" />
                                 资源增长榜
                             </button>
-                            <button onClick={() => setActiveTab('dashboard')} className={"flex-1 justify-center px-4 sm:px-6 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap " + (activeTab === 'dashboard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}>
+                            <button
+                                onClick={() => setActiveTab('dashboard')}
+                                className={"flex-1 lg:flex-none whitespace-nowrap flex-shrink-0 justify-center px-4 sm:px-6 lg:px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'dashboard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
+                            >
                                 <Icons.Activity className="w-4 h-4" />
                                 历史大盘
                             </button>
                         </div>
-                    </div>
-
-                    <div className="mobile-actions flex flex-wrap items-center gap-2 w-full">
-                        <div className="mobile-icon-group flex items-center gap-2">
-                            <button onClick={() => setIsPrivacyMenuOpen(!isPrivacyMenuOpen)} title={"隐私显示：" + privacyLabel} className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (privacyMode !== 'none' ? "bg-slate-200 text-slate-700 shadow-inner" : "bg-white/70 text-slate-500 hover:text-slate-800 hover:bg-white")}>
-                                {privacyMode !== 'none' ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
-                            </button>
-                            <button onClick={() => { setIsSettingsOpen(true); fetchRuntimeLogs(); }} title="系统设置" className="relative w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm">
-                                <Icons.Settings className="w-5 h-5" />
-                                {updateInfo && updateInfo.hasUpdate && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_0_2px_rgba(255,255,255,0.92)]"></span>}
-                            </button>
-                            <button onClick={() => setShowLastPlayed((current) => !current)} title={showLastPlayed ? '隐藏上次播放时间' : '显示上次播放时间'} className={"relative w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (showLastPlayed ? 'bg-white text-slate-700 hover:text-slate-900 hover:bg-white' : 'bg-slate-200 text-slate-500 hover:text-slate-700')}>
-                                {showLastPlayed ? <Icons.Clock className="w-5 h-5" /> : <Icons.ClockOff className="w-5 h-5" />}
-                            </button>
-                            <button onClick={() => setShareModalTarget('public')} title="公开页" className="w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm">
-                                <Icons.Share2 className="w-5 h-5" />
-                            </button>
-                        </div>
-
-                        <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
-                            <Icons.Plus className="w-4 h-4" /> 添加服务器
-                        </button>
-                        <button onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: false, refreshLastPlayed: false })} disabled={isRefreshing} className="mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap">
-                            <Icons.RefreshCw className={"w-4 h-4 " + (refreshMode === 'probe' ? 'animate-spin' : '')} />
-                            <span className="inline-flex items-center justify-center tabular-nums">
-                                {refreshMode === 'probe' ? '刷新中...' : '刷新状态'}
-                            </span>
-                        </button>
                     </div>
                 </header>
 
@@ -1382,16 +1329,7 @@ const App = () => {
                 {/* Action Bar: View Toggles & Search */}
                 {activeTab === 'cards' && (
                 <div className="mobile-action-bar flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                    <div
-                        className="md:hidden flex items-center justify-center py-2 cursor-pointer opacity-70 hover:opacity-100 transition-opacity w-full"
-                        onClick={() => setIsMobileControlsOpen(!isMobileControlsOpen)}
-                    >
-                        <div className="flex-1 h-px bg-slate-300/40"></div>
-                        <Icons.ChevronDown className={"w-4 h-4 mx-2 text-slate-400 transition-transform " + (isMobileControlsOpen ? "rotate-180" : "")} />
-                        <div className="flex-1 h-px bg-slate-300/40"></div>
-                    </div>
-
-                    <div className={(isMobileControlsOpen ? "flex " : "hidden ") + "md:flex mobile-controls flex-wrap items-center gap-3 w-full md:w-auto"}>
+                    <div className="mobile-controls flex flex-wrap items-center gap-3 w-full md:w-auto">
                         {/* 时间范围胶囊 (仅看板模式) */}
                         <div className="mobile-control-row has-range">
                             <div className="mobile-range-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
