@@ -480,6 +480,10 @@ const App = () => {
         const time = Number(value) || 0;
         return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '--';
     };
+    const formatCheckTime = (value) => {
+        const time = Number(value) || 0;
+        return time ? new Date(time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--';
+    };
     const formatLastPlayedTime = (value) => {
         const time = Number(value) || 0;
         if (!time) return '未知';
@@ -1519,7 +1523,7 @@ const App = () => {
                                     <div className="server-card-footer mt-3 flex justify-between items-center text-[10px] text-slate-400 font-bold relative z-10">
                                         <div className="flex items-center gap-1.5 bg-white/60 px-2 py-1 rounded-full border border-white">
                                             <Icons.Clock className="w-3 h-3" />
-                                            检测: {new Date(s.lastCheck).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                            检测: {formatCheckTime(s.lastCheck)}
                                         </div>
                                         <div className="mobile-card-actions flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                             <button onClick={() => setShareModalTarget(s.id)} className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors">分享</button>

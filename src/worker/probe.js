@@ -266,6 +266,17 @@
       }
   },
 
+  shuffleList(values) {
+      const items = Array.isArray(values) ? values.slice() : [];
+      for (let index = items.length - 1; index > 0; index -= 1) {
+          const swapIndex = Math.floor(Math.random() * (index + 1));
+          const temp = items[index];
+          items[index] = items[swapIndex];
+          items[swapIndex] = temp;
+      }
+      return items;
+  },
+
   async refreshAllLastPlayedIfRequested(config, options = {}) {
       const cleanConfig = this.sanitizeConfig(config);
       const transient = {
@@ -275,24 +286,71 @@
       const now = Date.now();
       const source = options.source === 'manual' ? 'manual' : 'scheduled';
       const todayKey = this.getShanghaiDayKey(now);
-      const shouldRunDaily = source === 'scheduled' && this.isShanghaiMidnightWindow(now) && cleanConfig.lastPlayedDailyKey !== todayKey;
       const shouldRunManual = source === 'manual' && Boolean(options.refreshLastPlayed);
-      if (!shouldRunDaily && !shouldRunManual) return cleanConfig;
       const targets = cleanConfig.servers.filter((server) => server.mediaStats && server.mediaStats.enabled);
-      if (!targets.length) return shouldRunDaily ? { ...cleanConfig, ...transient, lastPlayedDailyKey: todayKey } : { ...cleanConfig, ...transient };
-      const rawCursor = source === 'scheduled' ? Number(cleanConfig.lastPlayedCursor) || 0 : Number(options.cursor) || 0;
-      const cursor = rawCursor >= targets.length ? 0 : Math.max(0, rawCursor);
-      const batchSize = 1;
-      const selectedTargets = targets.slice(cursor, cursor + batchSize);
-      const nextLastPlayedCursor = cursor + selectedTargets.length < targets.length ? cursor + selectedTargets.length : 0;
+      if (source === 'manual' && !shouldRunManual) return cleanConfig;
+      if (!targets.length) {
+          return {
+              ...cleanConfig,
+              ...transient,
+              lastPlayedDailyKey: source === 'scheduled' ? todayKey : cleanConfig.lastPlayedDailyKey,
+              lastPlayedQueueDayKey: source === 'scheduled' ? todayKey : cleanConfig.lastPlayedQueueDayKey,
+              lastPlayedQueue: []
+          };
+      }
+      const targetIds = new Set(targets.map((server) => String(server.id)));
+      let selectedTargets = [];
+      let nextQueue = [];
+      let nextQueueDayKey = cleanConfig.lastPlayedQueueDayKey || '';
+      let nextDailyKey = cleanConfig.lastPlayedDailyKey || '';
+
+      if (source === 'scheduled') {
+          if (nextDailyKey === todayKey && (!Array.isArray(cleanConfig.lastPlayedQueue) || cleanConfig.lastPlayedQueue.length === 0)) {
+              return cleanConfig;
+          }
+          let queue = nextQueueDayKey === todayKey && Array.isArray(cleanConfig.lastPlayedQueue)
+              ? cleanConfig.lastPlayedQueue.map((value) => String(value || '')).filter((value) => targetIds.has(value))
+              : [];
+          if (!queue.length) {
+              if (nextDailyKey === todayKey) {
+                  return {
+                      ...cleanConfig,
+                      ...transient,
+                      lastPlayedQueueDayKey: todayKey,
+                      lastPlayedQueue: []
+                  };
+              }
+              queue = this.shuffleList(Array.from(targetIds));
+              nextQueueDayKey = todayKey;
+          }
+          const nextServerId = String(queue[0] || '');
+          selectedTargets = targets.filter((server) => String(server.id) === nextServerId).slice(0, 1);
+          nextQueue = queue.slice(1);
+          if (!selectedTargets.length) {
+              return {
+                  ...cleanConfig,
+                  ...transient,
+                  lastPlayedQueueDayKey: nextQueueDayKey,
+                  lastPlayedQueue: nextQueue
+              };
+          }
+          if (nextQueue.length === 0) nextDailyKey = todayKey;
+      } else {
+          const rawCursor = Number(options.cursor) || 0;
+          const cursor = rawCursor >= targets.length ? 0 : Math.max(0, rawCursor);
+          selectedTargets = targets.slice(cursor, cursor + 1);
+          nextQueue = cleanConfig.lastPlayedQueue || [];
+      }
+
       const results = await this.mapWithConcurrency(selectedTargets, 1, (server) => this.refreshServerLastPlayed(server, now, { limited: true }));
       const byId = new Map(results.filter(Boolean).map((result) => [String(result.server.id), result.server]));
       return {
           ...cleanConfig,
           ...transient,
           updatedAt: Math.max(cleanConfig.updatedAt || 0, now),
-          lastPlayedDailyKey: shouldRunDaily && nextLastPlayedCursor === 0 ? todayKey : cleanConfig.lastPlayedDailyKey,
-          lastPlayedCursor: source === 'scheduled' ? nextLastPlayedCursor : cleanConfig.lastPlayedCursor,
+          lastPlayedDailyKey: source === 'scheduled' ? nextDailyKey : cleanConfig.lastPlayedDailyKey,
+          lastPlayedQueueDayKey: source === 'scheduled' ? nextQueueDayKey : cleanConfig.lastPlayedQueueDayKey,
+          lastPlayedQueue: source === 'scheduled' ? nextQueue : cleanConfig.lastPlayedQueue,
           servers: cleanConfig.servers.map((server) => byId.get(String(server.id)) || server)
       };
   },

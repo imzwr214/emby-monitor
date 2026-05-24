@@ -6,8 +6,8 @@
  */
   async loadConfig(env) {
       const raw = await env.EMBY_DB.get('config');
-      if (!raw) return this.withRevision({ servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0 });
-      try { return this.withRevision(JSON.parse(raw)); } catch(e) { return this.withRevision({ servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0 }); }
+      if (!raw) return this.withRevision({ servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0, lastPlayedQueueDayKey: '', lastPlayedQueue: [] });
+      try { return this.withRevision(JSON.parse(raw)); } catch(e) { return this.withRevision({ servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0, lastPlayedQueueDayKey: '', lastPlayedQueue: [] }); }
   },
 
   async saveConfig(env, config) {
@@ -39,11 +39,18 @@
   },
 
   sanitizeConfig(config) {
-      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0, lastPlayedDailyKey: '', lastPlayedCursor: 0 };
+      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0, lastPlayedDailyKey: '', lastPlayedCursor: 0, lastPlayedQueueDayKey: '', lastPlayedQueue: [] };
       if (config && Number.isFinite(Number(config.updatedAt))) clean.updatedAt = Math.max(0, Number(config.updatedAt));
       if (config && Number.isFinite(Number(config.nextScheduledCursor))) clean.nextScheduledCursor = Math.max(0, Number(config.nextScheduledCursor));
       if (config && typeof config.lastPlayedDailyKey === 'string') clean.lastPlayedDailyKey = config.lastPlayedDailyKey.slice(0, 16);
       if (config && Number.isFinite(Number(config.lastPlayedCursor))) clean.lastPlayedCursor = Math.max(0, Number(config.lastPlayedCursor));
+      if (config && typeof config.lastPlayedQueueDayKey === 'string') clean.lastPlayedQueueDayKey = config.lastPlayedQueueDayKey.slice(0, 16);
+      if (config && Array.isArray(config.lastPlayedQueue)) {
+          clean.lastPlayedQueue = config.lastPlayedQueue
+              .map((value) => String(value || '').slice(0, 120))
+              .filter(Boolean)
+              .slice(0, 512);
+      }
       if (config && config.telegram && typeof config.telegram === 'object') {
           clean.telegram = { enabled: Boolean(config.telegram.enabled), botToken: String(config.telegram.botToken || '').trim(), chatId: String(config.telegram.chatId || '').trim() };
       }
