@@ -1277,7 +1277,7 @@ const App = () => {
                     </div>
 
                     <div className="order-4 lg:order-2 flex justify-center w-full lg:w-auto justify-self-center">
-                        <div className="tab-nav-center p-1.5 rounded-[20px] flex gap-1 items-center w-full lg:w-auto bg-white/40 backdrop-blur-xl border border-white/70 shadow-sm">
+                        <div className="p-1.5 rounded-[20px] flex gap-1 items-center w-full lg:w-auto">
                             <button
                                 onClick={() => setActiveTab('cards')}
                                 className={"flex-1 lg:flex-none whitespace-nowrap flex-shrink-0 justify-center px-4 sm:px-6 lg:px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'cards' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
