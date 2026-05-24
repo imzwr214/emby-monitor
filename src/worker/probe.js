@@ -65,14 +65,16 @@
       try { return await fetch(url, { ...options, signal: c.signal }); } finally { clearTimeout(t); }
   },
 
-  async probeEmbyServer(server, targetUrl) {
+  async probeEmbyServer(server, targetUrl, options = {}) {
       const headers = { 'Accept': 'application/json,text/plain,*/*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36' };
       const primaryPath = '/System/Info/Public';
       const fallbackPaths = ['/emby/System/Info/Public', '/emby/Users/Public'];
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 12000);
+      const paths = options.singlePath ? [primaryPath] : [primaryPath, ...fallbackPaths];
       const start = Date.now();
       const probePath = async (path) => {
           try {
-              const response = await this.fetchWithTimeout(targetUrl + path, { method: 'GET', headers }, 12000);
+              const response = await this.fetchWithTimeout(targetUrl + path, { method: 'GET', headers }, timeoutMs);
               if (response.status >= 200 && response.status < 400) return { ok: true, latency: Date.now() - start };
               if (response.status === 401 || response.status === 403) return { ok: true, latency: Date.now() - start };
               return { ok: false, latency: 0 };
@@ -80,9 +82,7 @@
               return { ok: false, latency: 0 };
           }
       };
-      const primaryResult = await probePath(primaryPath);
-      if (primaryResult.ok) return primaryResult;
-      for (const path of fallbackPaths) {
+      for (const path of paths) {
           const result = await probePath(path);
           if (result.ok) return result;
       }
@@ -105,13 +105,13 @@
       return targets;
   },
 
-  async probeEmbyServerWithFallbacks(server) {
-      const targets = this.getProbeTargets(server);
+  async probeEmbyServerWithFallbacks(server, options = {}) {
+      const targets = options.singleTarget ? this.getProbeTargets(server).slice(0, 1) : this.getProbeTargets(server);
       const addressProbeResults = [];
       for (const targetUrl of targets) {
           let result = { ok: false, latency: 0 };
           try {
-              result = await this.probeEmbyServer(server, targetUrl);
+              result = await this.probeEmbyServer(server, targetUrl, options);
           } catch(e) {}
           addressProbeResults.push({ url: targetUrl, ok: Boolean(result.ok), latency: Number(result.latency) || 0 });
           if (result.ok) {
@@ -121,37 +121,62 @@
       return { ok: false, latency: 0, addressProbeResults };
   },
 
-  async refreshMediaStatsIfNeeded(server, force = false) {
+  async refreshMediaStatsIfNeeded(server, force = false, options = {}) {
       const media = server.mediaStats || {};
       server.mediaStatsTouched = false;
-      if (!media.enabled) return server;
+      const logStartedAt = Date.now();
+      const logContext = { flow: options.flow || 'probe', requestId: options.requestId || '', serverId: server.id, serverName: server.name, limited: Boolean(options.limited), force: Boolean(force) };
+      const logMedia = async (stage, meta = {}) => {
+          console.log('[trace] media.counts.stage', { ...logContext, stage, elapsedMs: Date.now() - logStartedAt, ...meta });
+      };
+      if (!media.enabled) {
+          await logMedia('skip.disabled');
+          return server;
+      }
+      if (!force) {
+          await logMedia('skip.notForced');
+          return server;
+      }
       const now = Date.now();
       const todayKey = this.getShanghaiDayKey(now);
       const needsDailySnapshot = media.dailyKey !== todayKey || !media.todayCounts || !media.dailyDelta;
       if (!force && media.lastCheck && !needsDailySnapshot) return server;
       server.mediaStatsTouched = true;
+      const limited = Boolean(options.limited);
+      const limitedApiOptions = limited ? { maxBases: 1, maxProfiles: 1, maxAttempts: 1, timeoutMs: 2000 } : {};
 
       try {
+          await logMedia('start', { hasToken: Boolean(media.accessToken), hasUserId: Boolean(media.userId), hasUsername: Boolean(media.username), limitedApiOptions });
           let token = media.accessToken;
           let userId = media.userId || '';
           let clientProfile = media.clientProfile || '';
           let counts;
           try {
               if (!token) {
-                  const login = await this.loginEmbyForMedia(server);
+                  await logMedia('login.start');
+                  const login = await this.loginEmbyForMedia(server, limitedApiOptions);
                   token = login.accessToken;
                   userId = login.userId || userId;
                   clientProfile = login.clientProfile || clientProfile;
+                  await logMedia('login.done', { hasToken: Boolean(token), hasUserId: Boolean(userId), clientProfile });
               }
-              counts = await this.fetchEmbyMediaCounts({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile });
+              await logMedia('counts.request.start', { clientProfile });
+              counts = await this.fetchEmbyMediaCounts({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile, ...limitedApiOptions });
               clientProfile = counts.clientProfile || clientProfile;
+              await logMedia('counts.request.done', { clientProfile, counts: { movie: counts.movie, series: counts.series, episode: counts.episode } });
           } catch(e) {
+              await logMedia('primary.error', { error: e.message || String(e), limited });
+              if (limited) throw e;
+              await logMedia('retry.login.start');
               const login = await this.loginEmbyForMedia(server);
               token = login.accessToken;
               userId = login.userId || userId;
               clientProfile = login.clientProfile || clientProfile;
+              await logMedia('retry.login.done', { hasToken: Boolean(token), hasUserId: Boolean(userId), clientProfile });
+              await logMedia('retry.counts.request.start', { clientProfile });
               counts = await this.fetchEmbyMediaCounts({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile });
               clientProfile = counts.clientProfile || clientProfile;
+              await logMedia('retry.counts.request.done', { clientProfile, counts: { movie: counts.movie, series: counts.series, episode: counts.episode } });
           }
           const dailyStats = this.buildDailyMediaStats(media, counts, now);
           const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
@@ -160,22 +185,43 @@
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
               lastCheck: counts.time, lastError: ''
           };
-      } catch(e) { server.mediaStats = { ...media, lastError: e.message || '媒体库统计失败' }; }
+          await logMedia('done', { lastCheck: counts.time, dailyKey: dailyStats.dailyKey });
+      } catch(e) {
+          await logMedia('error', { error: e.message || '媒体库统计失败' });
+          server.mediaStats = { ...media, lastCheck: now, lastError: e.message || '媒体库统计失败' };
+      }
       return server;
   },
 
-  async refreshServerLastPlayed(server, now = Date.now()) {
+  async refreshServerLastPlayed(server, now = Date.now(), options = {}) {
       const media = server.mediaStats || {};
-      if (!media.enabled) return { server, touched: false };
+      const logStartedAt = Date.now();
+      const logContext = { flow: options.flow || 'probe', requestId: options.requestId || '', serverId: server.id, serverName: server.name, limited: Boolean(options.limited) };
+      const logLastPlayed = async (stage, meta = {}) => {
+          console.log('[trace] media.lastPlayed.stage', { ...logContext, stage, elapsedMs: Date.now() - logStartedAt, ...meta });
+      };
+      if (!media.enabled) {
+          await logLastPlayed('skip.disabled');
+          return { server, touched: false };
+      }
       let token = media.accessToken || '';
       let userId = media.userId || '';
       let clientProfile = media.clientProfile || '';
+      const limited = Boolean(options.limited);
+      const limitedApiOptions = limited ? { maxBases: 1, maxProfiles: 1, maxAttempts: 1, maxEndpoints: 1, timeoutMs: 2000 } : {};
       try {
-          const login = await this.loginEmbyForMedia(server);
-          token = login.accessToken;
-          userId = login.userId || userId;
-          clientProfile = login.clientProfile || clientProfile;
-          const result = await this.fetchEmbyLastPlayed({ ...server, mediaStats: { ...media, clientProfile } }, token, userId, { includeItem: true, clientProfile });
+          await logLastPlayed('start', { hasToken: Boolean(token), hasUserId: Boolean(userId), hasUsername: Boolean(media.username), clientProfile, limitedApiOptions });
+          if (!token || !userId) {
+              await logLastPlayed('login.start');
+              const login = await this.loginEmbyForMedia(server, limitedApiOptions);
+              token = login.accessToken;
+              userId = login.userId || userId;
+              clientProfile = login.clientProfile || clientProfile;
+              await logLastPlayed('login.done', { hasToken: Boolean(token), hasUserId: Boolean(userId), clientProfile });
+          }
+          await logLastPlayed('request.start', { clientProfile });
+          const result = await this.fetchEmbyLastPlayed({ ...server, mediaStats: { ...media, clientProfile } }, token, userId, { includeItem: true, clientProfile, ...limitedApiOptions });
+          await logLastPlayed('request.done', { lastPlayedAt: Number(result.lastPlayedAt) || 0, itemName: result.item && result.item.name ? result.item.name : '', clientProfile: result.clientProfile || clientProfile });
           const lastPlayedAt = Number(result.lastPlayedAt) || Number(media.lastPlayedAt) || 0;
           const nextKeepAlive = media.keepAlive ? { ...media.keepAlive } : media.keepAlive;
           if (nextKeepAlive && nextKeepAlive.enabled) {
@@ -202,6 +248,7 @@
               touched: true
           };
       } catch(e) {
+          await logLastPlayed('error', { error: e.message || '最后播放时间读取失败', debug: e.debug || [] });
           return {
               server: {
                   ...server,
@@ -233,14 +280,19 @@
       if (!shouldRunDaily && !shouldRunManual) return cleanConfig;
       const targets = cleanConfig.servers.filter((server) => server.mediaStats && server.mediaStats.enabled);
       if (!targets.length) return shouldRunDaily ? { ...cleanConfig, ...transient, lastPlayedDailyKey: todayKey } : { ...cleanConfig, ...transient };
-      const concurrencyLimit = Math.max(1, Math.min(Number(this.PROBE_CONCURRENCY_LIMIT) || 4, 4));
-      const results = await this.mapWithConcurrency(targets, concurrencyLimit, (server) => this.refreshServerLastPlayed(server, now));
+      const rawCursor = source === 'scheduled' ? Number(cleanConfig.lastPlayedCursor) || 0 : Number(options.cursor) || 0;
+      const cursor = rawCursor >= targets.length ? 0 : Math.max(0, rawCursor);
+      const batchSize = 1;
+      const selectedTargets = targets.slice(cursor, cursor + batchSize);
+      const nextLastPlayedCursor = cursor + selectedTargets.length < targets.length ? cursor + selectedTargets.length : 0;
+      const results = await this.mapWithConcurrency(selectedTargets, 1, (server) => this.refreshServerLastPlayed(server, now, { limited: true }));
       const byId = new Map(results.filter(Boolean).map((result) => [String(result.server.id), result.server]));
       return {
           ...cleanConfig,
           ...transient,
           updatedAt: Math.max(cleanConfig.updatedAt || 0, now),
-          lastPlayedDailyKey: shouldRunDaily ? todayKey : cleanConfig.lastPlayedDailyKey,
+          lastPlayedDailyKey: shouldRunDaily && nextLastPlayedCursor === 0 ? todayKey : cleanConfig.lastPlayedDailyKey,
+          lastPlayedCursor: source === 'scheduled' ? nextLastPlayedCursor : cleanConfig.lastPlayedCursor,
           servers: cleanConfig.servers.map((server) => byId.get(String(server.id)) || server)
       };
   },
@@ -282,15 +334,26 @@
   async refreshKeepAliveIfNeeded(server, now = Date.now(), options = {}) {
       const media = server.mediaStats || {};
       const keepAlive = media.keepAlive || {};
-      if (!keepAlive.enabled) return { server, alert: null, touched: false };
+      const logStartedAt = Date.now();
+      const logContext = { flow: options.flow || 'probe', requestId: options.requestId || '', serverId: server.id, serverName: server.name, refreshLastPlayed: options.refreshLastPlayed !== false };
+      const logKeepAlive = async (stage, meta = {}) => {
+          console.log('[trace] media.keepAlive.stage', { ...logContext, stage, elapsedMs: Date.now() - logStartedAt, ...meta });
+      };
+      if (!keepAlive.enabled) {
+          await logKeepAlive('skip.disabled');
+          return { server, alert: null, touched: false };
+      }
       const nextKeepAlive = { ...keepAlive, lastCheckedAt: now };
       let token = media.accessToken || '';
       let userId = media.userId || '';
       try {
+          await logKeepAlive('start', { lastPlayedAt: Number(media.lastPlayedAt) || 0, lastPlayedCheck: Number(media.lastPlayedCheck) || 0 });
           let nextMedia = media;
           let lastPlayedAt = Number(media.lastPlayedAt) || 0;
           if (options.refreshLastPlayed !== false && (!lastPlayedAt || now - (Number(media.lastPlayedCheck) || 0) > 24 * 60 * 60 * 1000)) {
-              const refreshed = await this.refreshServerLastPlayed(server, now);
+              await logKeepAlive('lastPlayed.refresh.start');
+              const refreshed = await this.refreshServerLastPlayed(server, now, { env: options.env, logConfig: options.logConfig, requestId: options.requestId, flow: options.flow });
+              await logKeepAlive('lastPlayed.refresh.done', { touched: Boolean(refreshed && refreshed.touched) });
               nextMedia = refreshed.server.mediaStats || media;
               token = nextMedia.accessToken || token;
               userId = nextMedia.userId || userId;
@@ -312,8 +375,10 @@
                   alert = { message: this.buildKeepAliveMessage(server, nextKeepAlive, inactiveDays, effectiveLastPlayedAt), serverId: server.id, checkedAt: now };
               }
           }
+          await logKeepAlive('done', { effectiveLastPlayedAt, alert: Boolean(alert), periodDays, alertDays });
           return { server: { ...server, mediaStats: { ...nextMedia, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert, touched: true };
       } catch(e) {
+          await logKeepAlive('error', { error: e.message || String(e) });
           return { server: { ...server, mediaStats: { ...media, accessToken: token, userId, keepAlive: nextKeepAlive } }, alert: null, touched: true };
       }
   },
@@ -334,7 +399,7 @@
       return results;
   },
 
-  async probeServerRuntimeState(env, server, forceMedia = false) {
+  async probeServerRuntimeState(env, server, forceMedia = false, options = {}) {
       const cleanServers = this.sanitizeConfig({ servers: [server] }).servers;
       let s = cleanServers[0] || { ...server };
       const previousStatus = s.status;
@@ -342,8 +407,9 @@
       s.history = this.normalizeHistory(s.history, s.lastCheck);
       const checkedAt = Date.now();
 
-      const probeTargets = this.getProbeTargets(s);
-      const needsMediaRefresh = Boolean(forceMedia) || !s.mediaStats || !Number(s.mediaStats.lastCheck);
+      const limitedMedia = Boolean(options.limitedMedia);
+      const probeTargets = limitedMedia ? this.getProbeTargets(s).slice(0, 1) : this.getProbeTargets(s);
+      const needsMediaRefresh = Boolean(forceMedia);
 
       if (!probeTargets.length) {
           s.consecutiveFailures = Math.max(Number(s.consecutiveFailures) || 0, Number(this.OFFLINE_CONFIRMATION_THRESHOLD) || 2);
@@ -353,7 +419,7 @@
           if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
           s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
           s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-          await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
+          await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh, { limited: limitedMedia });
           s.previousStatus = previousStatus; return s;
       }
 
@@ -362,10 +428,10 @@
       let addressProbeResults = [];
 
       try {
-          const result = await this.probeEmbyServerWithFallbacks(s);
+          const result = await this.probeEmbyServerWithFallbacks(s, limitedMedia ? { singleTarget: true, singlePath: true, timeoutMs: 2000 } : {});
           isAlive = result.ok; finalLatency = result.latency; addressProbeResults = result.addressProbeResults || [];
       } catch(e) { isAlive = false; }
-      if (!isAlive) {
+      if (!isAlive && Boolean(options.verifyWithLogin)) {
           const loginState = await this.verifyWithLoginState(s);
           if (loginState && loginState.ok) {
               isAlive = true;
@@ -393,7 +459,7 @@
       if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
       s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
       s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-      await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh);
+      await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh, { limited: limitedMedia, env, logConfig: options.logConfig, requestId: options.requestId, flow: options.flow });
       s.previousStatus = previousStatus; return s;
   },
 
@@ -428,80 +494,119 @@
       if (!target) return { ok: false, status: 404, error: 'Server not found' };
 
       const probeStartedAt = Date.now();
+      const requestId = 'single-' + probeStartedAt.toString(36) + '-' + targetId;
       const forceMedia = Boolean(options.forceMedia);
-      await this.appendRuntimeLog(env, 'info', 'probe.single.start', '单体测速开始', { source: 'manual', forceMedia, serverId: target.id, serverName: target.name }, { config: cleanConfig });
-      const probed = await this.probeServerRuntimeState(env, target, forceMedia);
-
-      const latestConfig = await this.loadConfig(env);
-      const baseConfig = this.sanitizeConfig(latestConfig);
-      const latestTarget = baseConfig.servers.find((server) => String(server.id) === targetId);
-      if (!latestTarget) return { ok: false, status: 404, error: 'Server not found' };
-
-      const notifyQueue = [];
-      let mergedServer = this.hasSameProbeConfig(probed, latestTarget) ? this.mergeProbedRuntimeFields(latestTarget, probed) : latestTarget;
-      const oldStatus = this.hasSameProbeConfig(probed, latestTarget) ? probed.previousStatus : latestTarget.status;
-      const telegramEnabled = this.isTelegramEnabled(env, baseConfig);
-      if (telegramEnabled && mergedServer.status === 'offline' && this.shouldSendOfflineAlert(mergedServer)) {
-          notifyQueue.push({ message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status), kind: 'offline', serverId: mergedServer.id, lastCheck: mergedServer.lastCheck });
-      } else if (telegramEnabled && oldStatus === 'offline' && mergedServer.status === 'online' && latestTarget.offlineAlertSentAt) {
-          notifyQueue.push({ message: this.buildStatusMessage({ ...mergedServer, offlineSince: latestTarget.offlineSince || mergedServer.offlineSince }, oldStatus, mergedServer.status), kind: 'online' });
-      }
-
-      const keepAliveResult = await this.refreshKeepAliveIfNeeded(mergedServer);
-      if (keepAliveResult && keepAliveResult.touched) mergedServer = keepAliveResult.server;
-      if (keepAliveResult && keepAliveResult.alert && telegramEnabled) {
-          notifyQueue.push({ ...keepAliveResult.alert, kind: 'keepAlive' });
-      }
-      if (options.refreshLastPlayed) {
-          const lastPlayedResult = await this.refreshServerLastPlayed(mergedServer);
-          if (lastPlayedResult && lastPlayedResult.touched) mergedServer = lastPlayedResult.server;
-      }
-
-      const sendResults = await Promise.all(notifyQueue.map((item) => this.sendTelegram(env, item.message, baseConfig)));
-      for (const [index, ok] of sendResults.entries()) {
-          const item = notifyQueue[index];
-          if (!ok || !item) continue;
-          if (item.kind === 'offline') {
-              mergedServer.offlineAlertSentAt = item.lastCheck;
-          } else if (item.kind === 'keepAlive' && mergedServer.mediaStats && mergedServer.mediaStats.keepAlive) {
-              mergedServer.mediaStats = { ...mergedServer.mediaStats, keepAlive: { ...mergedServer.mediaStats.keepAlive, alertSentAt: item.checkedAt || Date.now() } };
-          }
-      }
-
-      const configBeforeSave = this.sanitizeConfig(await this.loadConfig(env));
-      const targetBeforeSave = configBeforeSave.servers.find((server) => String(server.id) === targetId);
-      if (!targetBeforeSave) return { ok: false, status: 404, error: 'Server not found' };
-      const serverToSave = this.hasSameProbeConfig(mergedServer, targetBeforeSave) ? {
-          ...targetBeforeSave,
-          status: mergedServer.status,
-          totalChecks: mergedServer.totalChecks,
-          successfulChecks: mergedServer.successfulChecks,
-          uptime: mergedServer.uptime,
-          latency: mergedServer.latency,
-          lastCheck: mergedServer.lastCheck,
-          offlineSince: mergedServer.offlineSince,
-          offlineAlertSentAt: mergedServer.offlineAlertSentAt,
-          consecutiveFailures: mergedServer.consecutiveFailures || 0,
-          firstFailureAt: mergedServer.firstFailureAt || 0,
-          addressProbeResults: mergedServer.addressProbeResults || [],
-          history: mergedServer.history,
-          mediaStats: mergedServer.mediaStats
-      } : targetBeforeSave;
-      const mergedConfig = {
-          ...configBeforeSave,
-          servers: configBeforeSave.servers.map((server) => String(server.id) === targetId ? serverToSave : server)
+      const logStep = async (stage, meta = {}, logConfig = cleanConfig, level = 'debug') => {
+          console.log('[trace] probe.single.stage', { requestId, serverId: target.id, serverName: target.name, stage, elapsedMs: Date.now() - probeStartedAt, ...meta });
       };
-      const savedConfig = await this.saveConfig(env, mergedConfig);
-      const savedServer = savedConfig.servers.find((server) => String(server.id) === targetId) || mergedServer;
-      await this.appendRuntimeLog(env, 'info', 'probe.single.done', '单体测速完成', {
-          source: 'manual',
-          forceMedia,
-          elapsedMs: Date.now() - probeStartedAt,
-          notifyCount: notifyQueue.length,
-          notifySuccessCount: sendResults.filter(Boolean).length,
-          target: { id: savedServer.id, name: savedServer.name, previousStatus: probed.previousStatus, status: savedServer.status, latency: savedServer.latency, failures: savedServer.consecutiveFailures || 0 }
-      }, { config: savedConfig });
-      return { ok: true, config: savedConfig, server: savedServer };
+      await this.appendRuntimeLog(env, 'info', 'probe.single.start', '单体测速开始', { source: 'manual', requestId, forceMedia, refreshLastPlayed: Boolean(options.refreshLastPlayed), serverId: target.id, serverName: target.name }, { config: cleanConfig });
+      try {
+          await logStep('runtime.start', { limitedMedia: Boolean(options.refreshLastPlayed), hasMedia: Boolean(target.mediaStats && target.mediaStats.enabled) });
+          const probed = await this.probeServerRuntimeState(env, target, forceMedia, { limitedMedia: Boolean(options.refreshLastPlayed), requestId, flow: 'single', logConfig: cleanConfig });
+          await logStep('runtime.done', { status: probed.status, latency: probed.latency, failures: probed.consecutiveFailures || 0, addressCount: Array.isArray(probed.addressProbeResults) ? probed.addressProbeResults.length : 0 });
+
+          await logStep('loadConfig.afterRuntime.start');
+          const latestConfig = await this.loadConfig(env);
+          await logStep('loadConfig.afterRuntime.done', { serverCount: Array.isArray(latestConfig.servers) ? latestConfig.servers.length : 0, revision: latestConfig.revision || '' });
+          const baseConfig = this.sanitizeConfig(latestConfig);
+          await logStep('sanitize.afterRuntime.done', { serverCount: baseConfig.servers.length, revision: baseConfig.revision || '' }, baseConfig);
+          const latestTarget = baseConfig.servers.find((server) => String(server.id) === targetId);
+          if (!latestTarget) {
+              await logStep('target.afterRuntime.missing', {}, baseConfig, 'warn');
+              return { ok: false, status: 404, error: 'Server not found' };
+          }
+
+          const notifyQueue = [];
+          const sameProbeConfig = this.hasSameProbeConfig(probed, latestTarget);
+          let mergedServer = sameProbeConfig ? this.mergeProbedRuntimeFields(latestTarget, probed) : latestTarget;
+          const oldStatus = sameProbeConfig ? probed.previousStatus : latestTarget.status;
+          const telegramEnabled = this.isTelegramEnabled(env, baseConfig);
+          await logStep('merge.done', { sameProbeConfig, oldStatus, nextStatus: mergedServer.status, telegramEnabled }, baseConfig);
+          if (telegramEnabled && mergedServer.status === 'offline' && this.shouldSendOfflineAlert(mergedServer)) {
+              notifyQueue.push({ message: this.buildStatusMessage(mergedServer, oldStatus, mergedServer.status), kind: 'offline', serverId: mergedServer.id, lastCheck: mergedServer.lastCheck });
+          } else if (telegramEnabled && oldStatus === 'offline' && mergedServer.status === 'online' && latestTarget.offlineAlertSentAt) {
+              notifyQueue.push({ message: this.buildStatusMessage({ ...mergedServer, offlineSince: latestTarget.offlineSince || mergedServer.offlineSince }, oldStatus, mergedServer.status), kind: 'online' });
+          }
+          await logStep('notify.prepare.done', { notifyCount: notifyQueue.length, notifyKinds: notifyQueue.map((item) => item.kind) }, baseConfig);
+
+          await logStep('keepAlive.start', { enabled: Boolean(mergedServer.mediaStats && mergedServer.mediaStats.keepAlive && mergedServer.mediaStats.keepAlive.enabled) }, baseConfig);
+          const keepAliveResult = await this.refreshKeepAliveIfNeeded(mergedServer, Date.now(), { refreshLastPlayed: false, env, logConfig: baseConfig, requestId, flow: 'single' });
+          await logStep('keepAlive.done', { touched: Boolean(keepAliveResult && keepAliveResult.touched), alert: Boolean(keepAliveResult && keepAliveResult.alert) }, baseConfig);
+          if (keepAliveResult && keepAliveResult.touched) mergedServer = keepAliveResult.server;
+          if (keepAliveResult && keepAliveResult.alert && telegramEnabled) {
+              notifyQueue.push({ ...keepAliveResult.alert, kind: 'keepAlive' });
+          }
+          if (options.refreshLastPlayed) {
+              await logStep('lastPlayed.start', { limited: true }, baseConfig);
+              const lastPlayedResult = await this.refreshServerLastPlayed(mergedServer, Date.now(), { limited: true, env, logConfig: baseConfig, requestId, flow: 'single' });
+              await logStep('lastPlayed.done', { touched: Boolean(lastPlayedResult && lastPlayedResult.touched), lastPlayedAt: Number(lastPlayedResult && lastPlayedResult.server && lastPlayedResult.server.mediaStats && lastPlayedResult.server.mediaStats.lastPlayedAt) || 0, error: lastPlayedResult && lastPlayedResult.server && lastPlayedResult.server.mediaStats ? lastPlayedResult.server.mediaStats.lastPlayedError || '' : '' }, baseConfig);
+              if (lastPlayedResult && lastPlayedResult.touched) mergedServer = lastPlayedResult.server;
+          } else {
+              await logStep('lastPlayed.skip.notRequested', {}, baseConfig);
+          }
+
+          await logStep('telegram.send.start', { notifyCount: notifyQueue.length }, baseConfig);
+          const sendResults = await Promise.all(notifyQueue.map((item) => this.sendTelegram(env, item.message, baseConfig)));
+          await logStep('telegram.send.done', { notifyCount: notifyQueue.length, notifySuccessCount: sendResults.filter(Boolean).length, sendResults }, baseConfig);
+          for (const [index, ok] of sendResults.entries()) {
+              const item = notifyQueue[index];
+              if (!ok || !item) continue;
+              if (item.kind === 'offline') {
+                  mergedServer.offlineAlertSentAt = item.lastCheck;
+              } else if (item.kind === 'keepAlive' && mergedServer.mediaStats && mergedServer.mediaStats.keepAlive) {
+                  mergedServer.mediaStats = { ...mergedServer.mediaStats, keepAlive: { ...mergedServer.mediaStats.keepAlive, alertSentAt: item.checkedAt || Date.now() } };
+              }
+          }
+
+          await logStep('loadConfig.beforeSave.start', {}, baseConfig);
+          const configBeforeSave = this.sanitizeConfig(await this.loadConfig(env));
+          await logStep('loadConfig.beforeSave.done', { serverCount: configBeforeSave.servers.length, revision: configBeforeSave.revision || '' }, configBeforeSave);
+          const targetBeforeSave = configBeforeSave.servers.find((server) => String(server.id) === targetId);
+          if (!targetBeforeSave) {
+              await logStep('target.beforeSave.missing', {}, configBeforeSave, 'warn');
+              return { ok: false, status: 404, error: 'Server not found' };
+          }
+          const sameBeforeSaveConfig = this.hasSameProbeConfig(mergedServer, targetBeforeSave);
+          const serverToSave = sameBeforeSaveConfig ? {
+              ...targetBeforeSave,
+              status: mergedServer.status,
+              totalChecks: mergedServer.totalChecks,
+              successfulChecks: mergedServer.successfulChecks,
+              uptime: mergedServer.uptime,
+              latency: mergedServer.latency,
+              lastCheck: mergedServer.lastCheck,
+              offlineSince: mergedServer.offlineSince,
+              offlineAlertSentAt: mergedServer.offlineAlertSentAt,
+              consecutiveFailures: mergedServer.consecutiveFailures || 0,
+              firstFailureAt: mergedServer.firstFailureAt || 0,
+              addressProbeResults: mergedServer.addressProbeResults || [],
+              history: mergedServer.history,
+              mediaStats: mergedServer.mediaStats
+          } : targetBeforeSave;
+          await logStep('save.merge.done', { sameBeforeSaveConfig, status: serverToSave.status, latency: serverToSave.latency, lastPlayedAt: Number(serverToSave.mediaStats && serverToSave.mediaStats.lastPlayedAt) || 0, lastPlayedError: serverToSave.mediaStats ? serverToSave.mediaStats.lastPlayedError || '' : '' }, configBeforeSave);
+          const mergedConfig = {
+              ...configBeforeSave,
+              servers: configBeforeSave.servers.map((server) => String(server.id) === targetId ? serverToSave : server)
+          };
+          await logStep('save.start', {}, mergedConfig);
+          const savedConfig = await this.saveConfig(env, mergedConfig);
+          const savedServer = savedConfig.servers.find((server) => String(server.id) === targetId) || mergedServer;
+          await logStep('save.done', { revision: savedConfig.revision || '', status: savedServer.status, latency: savedServer.latency, lastPlayedAt: Number(savedServer.mediaStats && savedServer.mediaStats.lastPlayedAt) || 0 }, savedConfig);
+          await this.appendRuntimeLog(env, 'info', 'probe.single.done', '单体测速完成', {
+              source: 'manual',
+              requestId,
+              forceMedia,
+              refreshLastPlayed: Boolean(options.refreshLastPlayed),
+              elapsedMs: Date.now() - probeStartedAt,
+              notifyCount: notifyQueue.length,
+              notifySuccessCount: sendResults.filter(Boolean).length,
+              target: { id: savedServer.id, name: savedServer.name, previousStatus: probed.previousStatus, status: savedServer.status, latency: savedServer.latency, failures: savedServer.consecutiveFailures || 0 }
+          }, { config: savedConfig });
+          return { ok: true, config: savedConfig, server: savedServer };
+      } catch(e) {
+          await this.appendRuntimeLog(env, 'error', 'probe.single.error', '单体测速异常', { requestId, serverId: target.id, serverName: target.name, elapsedMs: Date.now() - probeStartedAt, error: e.message || String(e), stack: e && e.stack ? String(e.stack).split('\n').slice(0, 6).join('\n') : '' }, { config: cleanConfig });
+          throw e;
+      }
   },
 
   async runProbeLogic(env, config, options = {}) {
@@ -510,7 +615,7 @@
       const forceMedia = Boolean(options.forceMedia);
       const probeSource = options.source === 'manual' ? 'manual' : 'scheduled';
       const concurrencyLimit = Math.max(1, Number(this.PROBE_CONCURRENCY_LIMIT) || 4);
-      const batchSize = 3;
+      const batchSize = forceMedia || Boolean(options.refreshLastPlayed) ? 1 : 3;
       const totalServers = config.servers.length;
       const rawCursor = probeSource === 'scheduled'
           ? Number(config.nextScheduledCursor) || 0
@@ -522,7 +627,7 @@
       await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers, targetCount: probeTargets.length }, { config });
 
       const probedServers = await this.mapWithConcurrency(probeTargets, concurrencyLimit, async (s) => {
-          return this.probeServerRuntimeState(env, s, forceMedia);
+          return this.probeServerRuntimeState(env, s, forceMedia, { limitedMedia: Boolean(options.refreshLastPlayed), requestId: 'batch-' + probeStartedAt.toString(36), flow: probeSource, logConfig: config });
       });
 
       const suppressProbeFailures = false; // 分批探测模式下禁用单批次大面积掉线防误报拦截
@@ -575,13 +680,22 @@
           mergedConfig.nextScheduledCursor = nextCursor;
       }
       const keepAliveTargets = mergedConfig.servers.filter((server) => batchIds.has(server.id));
-      const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server, Date.now(), { refreshLastPlayed: probeSource !== 'scheduled' }));
+      const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server, Date.now(), { refreshLastPlayed: false, env, logConfig: baseConfig, requestId: 'batch-' + probeStartedAt.toString(36), flow: probeSource }));
       for (const result of keepAliveResults) {
           if (!result || !result.touched) continue;
           const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
           if (index >= 0) mergedConfig.servers[index] = result.server;
           if (result.alert && this.isTelegramEnabled(env, baseConfig)) {
               notifyQueue.push({ ...result.alert, kind: 'keepAlive' });
+          }
+      }
+      if (probeSource === 'manual' && Boolean(options.refreshLastPlayed)) {
+          const lastPlayedTargets = mergedConfig.servers.filter((server) => batchIds.has(server.id) && server.mediaStats && server.mediaStats.enabled);
+          const lastPlayedResults = await this.mapWithConcurrency(lastPlayedTargets, 1, (server) => this.refreshServerLastPlayed(server, Date.now(), { limited: true, env, logConfig: baseConfig, requestId: 'batch-' + probeStartedAt.toString(36), flow: probeSource }));
+          for (const result of lastPlayedResults) {
+              if (!result || !result.touched) continue;
+              const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
+              if (index >= 0) mergedConfig.servers[index] = result.server;
           }
       }
       if (notifyQueue.length) {
@@ -608,12 +722,12 @@
               mergedConfig.updatedAt = Math.max(mergedConfig.updatedAt || 0, Date.now());
           }
       }
-      let configToSave = mergedConfig;
-      const shouldRefreshLastPlayed = probeSource === 'manual' && Boolean(options.refreshLastPlayed) && !mergedConfig.hasMore;
-      if (shouldRefreshLastPlayed) {
-          configToSave = await this.refreshAllLastPlayedIfRequested(mergedConfig, { source: probeSource, refreshLastPlayed: true });
-      }
-      await this.saveConfig(env, configToSave);
+      const savedConfig = await this.saveConfig(env, mergedConfig);
+      const responseConfig = {
+          ...savedConfig,
+          nextCursor: mergedConfig.nextCursor,
+          hasMore: mergedConfig.hasMore
+      };
       const statusCounts = mergedConfig.servers.reduce((counts, server) => {
           const status = ['online', 'offline', 'unknown'].includes(server.status) ? server.status : 'unknown';
           counts[status] = (counts[status] || 0) + 1;
@@ -640,7 +754,7 @@
           notifyCount: notifyQueue.length,
           notifySuccessCount: sendResults.filter(Boolean).length,
           targets: probeDetails
-      }, { config: configToSave });
-      return configToSave;
+      }, { config: savedConfig });
+      return responseConfig;
   }
 ,

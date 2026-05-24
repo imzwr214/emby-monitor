@@ -5,7 +5,7 @@
  * 日志只记录排障需要的摘要字段，敏感字段会脱敏。
  */
   LOG_KEY: 'runtime_logs',
-  LOG_LIMIT: 300,
+  LOG_LIMIT: 1000,
 
   redactLogValue(key, value) {
       const lowerKey = String(key || '').toLowerCase();

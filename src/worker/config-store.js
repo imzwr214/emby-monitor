@@ -39,10 +39,11 @@
   },
 
   sanitizeConfig(config) {
-      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0, lastPlayedDailyKey: '' };
+      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0, lastPlayedDailyKey: '', lastPlayedCursor: 0 };
       if (config && Number.isFinite(Number(config.updatedAt))) clean.updatedAt = Math.max(0, Number(config.updatedAt));
       if (config && Number.isFinite(Number(config.nextScheduledCursor))) clean.nextScheduledCursor = Math.max(0, Number(config.nextScheduledCursor));
       if (config && typeof config.lastPlayedDailyKey === 'string') clean.lastPlayedDailyKey = config.lastPlayedDailyKey.slice(0, 16);
+      if (config && Number.isFinite(Number(config.lastPlayedCursor))) clean.lastPlayedCursor = Math.max(0, Number(config.lastPlayedCursor));
       if (config && config.telegram && typeof config.telegram === 'object') {
           clean.telegram = { enabled: Boolean(config.telegram.enabled), botToken: String(config.telegram.botToken || '').trim(), chatId: String(config.telegram.chatId || '').trim() };
       }

@@ -131,22 +131,31 @@
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
 
-      if (request.method === 'GET') {
-          const config = await this.loadConfig(env);
-          return this.json({ ...config, notifyEnabled: this.isTelegramEnabled(env, config), telegram: this.getTelegramConfig(env, config), logging: config.logging || { enabled: false }, publicShareBaseUrl: this.getPublicShareBaseUrl(env), publicShareWildcardDomain: this.getPublicShareWildcardDomain(env) });
-      }
-      if (request.method === 'POST') {
-          const nextConfig = await request.json();
-          const cleanConfig = this.sanitizeConfig(nextConfig);
-          const latestConfig = await this.loadConfig(env);
-          if (nextConfig.baseRevision && latestConfig.revision && nextConfig.baseRevision !== latestConfig.revision) {
-              return this.json({ ok: false, error: 'Config changed, reload required', latestUpdatedAt: latestConfig.updatedAt, revision: latestConfig.revision }, 409);
+      try {
+          if (request.method === 'GET') {
+              const config = await this.loadConfig(env);
+              return this.json({ ...config, notifyEnabled: this.isTelegramEnabled(env, config), telegram: this.getTelegramConfig(env, config), logging: config.logging || { enabled: false }, publicShareBaseUrl: this.getPublicShareBaseUrl(env), publicShareWildcardDomain: this.getPublicShareWildcardDomain(env) });
           }
-          if (latestConfig.updatedAt && cleanConfig.updatedAt && cleanConfig.updatedAt < latestConfig.updatedAt) {
-              return this.json({ ok: false, error: 'Stale config rejected', latestUpdatedAt: latestConfig.updatedAt, revision: latestConfig.revision }, 409);
+          if (request.method === 'POST') {
+              const nextConfig = await request.json();
+              const cleanConfig = this.sanitizeConfig(nextConfig);
+              const latestConfig = await this.loadConfig(env);
+              if (nextConfig.baseRevision && latestConfig.revision && nextConfig.baseRevision !== latestConfig.revision) {
+                  return this.json({ ok: false, error: 'Config changed, reload required', latestUpdatedAt: latestConfig.updatedAt, revision: latestConfig.revision }, 409);
+              }
+              if (latestConfig.updatedAt && cleanConfig.updatedAt && cleanConfig.updatedAt < latestConfig.updatedAt) {
+                  return this.json({ ok: false, error: 'Stale config rejected', latestUpdatedAt: latestConfig.updatedAt, revision: latestConfig.revision }, 409);
+              }
+              const savedConfig = await this.saveConfig(env, cleanConfig);
+              return this.json({ ok: true, updatedAt: savedConfig.updatedAt, revision: savedConfig.revision });
           }
-          const savedConfig = await this.saveConfig(env, cleanConfig);
-          return this.json({ ok: true, updatedAt: savedConfig.updatedAt, revision: savedConfig.revision });
+      } catch (e) {
+          await this.appendRuntimeLog(env, 'error', 'config.route.error', '配置接口异常', {
+              method: request.method,
+              error: e && e.message ? e.message : String(e || 'config error'),
+              stack: e && e.stack ? String(e.stack).split('\n').slice(0, 6).join('\n') : ''
+          }).catch(() => {});
+          return this.json({ ok: false, error: 'CONFIG_READ_FAILED' }, 500);
       }
     }
 
@@ -256,11 +265,20 @@
       const requestBody = await request.json().catch(() => ({}));
       const serverId = requestBody.serverId;
       if (serverId === undefined || serverId === null || serverId === '') return this.json({ ok: false, error: 'Missing serverId' }, 400);
-      const currentConfig = await this.loadConfig(env);
-      const result = await this.runSingleProbeLogic(env, currentConfig, serverId, { forceMedia: Boolean(requestBody.forceMedia), refreshLastPlayed: Boolean(requestBody.refreshLastPlayed) });
-      if (!result.ok) return this.json({ ok: false, error: result.error || 'Single ping failed' }, result.status || 500);
-      const updatedConfig = result.config;
-      return this.json({ ok: true, ...updatedConfig, server: result.server, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
+      try {
+        const currentConfig = await this.loadConfig(env);
+        const result = await this.runSingleProbeLogic(env, currentConfig, serverId, { forceMedia: Boolean(requestBody.forceMedia), refreshLastPlayed: Boolean(requestBody.refreshLastPlayed) });
+        if (!result.ok) return this.json({ ok: false, error: result.error || 'Single ping failed' }, result.status || 500);
+        const updatedConfig = result.config;
+        return this.json({ ok: true, ...updatedConfig, server: result.server, notifyEnabled: this.isTelegramEnabled(env, updatedConfig) });
+      } catch(e) {
+        const message = e && e.message ? e.message : String(e || 'Single ping failed');
+        try {
+          const logConfig = await this.loadConfig(env);
+          await this.appendRuntimeLog(env, 'error', 'probe.single.route.error', '单体测速接口异常', { serverId, error: message, stack: e && e.stack ? String(e.stack).split('\n').slice(0, 6).join('\n') : '' }, { config: logConfig });
+        } catch(logError) {}
+        return this.json({ ok: false, error: message }, 500);
+      }
     }
 
     if (url.pathname === '/api/update/check' && request.method === 'GET') {

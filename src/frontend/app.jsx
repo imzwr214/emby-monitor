@@ -5,9 +5,30 @@
  * 第一轮拆分保持原 App 逻辑不变；后续新增前端功能通常先从这里定位入口。
  */
 const App = () => {
-    const [servers, setServers] = useState([]);
-    const [iconLib, setIconLib] = useState({});
+    const CONFIG_CACHE_KEY = 'emby_last_good_config';
+    const readCachedConfig = () => {
+        try {
+            const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (e) {
+            return null;
+        }
+    };
+    const writeCachedConfig = (data) => {
+        try {
+            if (!data || typeof data !== 'object') return;
+            localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(data));
+        } catch (e) {}
+    };
+    const cachedConfig = readCachedConfig();
+    const [servers, setServers] = useState(() => Array.isArray(cachedConfig && cachedConfig.servers) ? cachedConfig.servers : []);
+    const [iconLib, setIconLib] = useState(() => (cachedConfig && cachedConfig.icons && typeof cachedConfig.icons === 'object') ? cachedConfig.icons : {});
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [refreshMode, setRefreshMode] = useState('');
+    const [refreshingLastPlayedId, setRefreshingLastPlayedId] = useState(null);
+    const [isMobileControlsOpen, setIsMobileControlsOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isSavingServer, setIsSavingServer] = useState(false);
@@ -35,18 +56,18 @@ const App = () => {
     const [mediaForm, setMediaForm] = useState({ enabled: false, username: '', password: '' });
     const [keepAliveForm, setKeepAliveForm] = useState({ enabled: false, periodDays: '', alertDays: '' });
     const [quickImportText, setQuickImportText] = useState('');
-    const [telegramForm, setTelegramForm] = useState({ enabled: false, botToken: '', chatId: '' });
-    const [loggingEnabled, setLoggingEnabled] = useState(false);
+    const [telegramForm, setTelegramForm] = useState(() => (cachedConfig && cachedConfig.telegram && typeof cachedConfig.telegram === 'object') ? cachedConfig.telegram : { enabled: false, botToken: '', chatId: '' });
+    const [loggingEnabled, setLoggingEnabled] = useState(() => Boolean(cachedConfig && cachedConfig.logging && cachedConfig.logging.enabled));
     const [runtimeLogs, setRuntimeLogs] = useState([]);
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
     const [isSavingLogging, setIsSavingLogging] = useState(false);
     const [isTestingTelegram, setIsTestingTelegram] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('cards');
-    const [notifyEnabled, setNotifyEnabled] = useState(false);
+    const [notifyEnabled, setNotifyEnabled] = useState(() => Boolean(cachedConfig && cachedConfig.notifyEnabled));
     const [growthMetric, setGrowthMetric] = useState(() => localStorage.getItem('growth_metric') || 'total');
-    const [configUpdatedAt, setConfigUpdatedAt] = useState(0);
-    const [configRevision, setConfigRevision] = useState('');
+    const [configUpdatedAt, setConfigUpdatedAt] = useState(() => Number(cachedConfig && cachedConfig.updatedAt) || 0);
+    const [configRevision, setConfigRevision] = useState(() => String(cachedConfig && cachedConfig.revision || ''));
     const [updateInfo, setUpdateInfo] = useState(null);
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
@@ -69,6 +90,7 @@ const App = () => {
     const configRevisionRef = useRef('');
     const configUpdatedAtRef = useRef(0);
     const isRefreshingRef = useRef(false);
+    const serversRef = useRef([]);
     const dialogResolveRef = useRef(null);
 
     const closeSystemDialog = (value) => {
@@ -107,6 +129,16 @@ const App = () => {
         return fetch(path, { ...options, headers });
     };
 
+    const apiFetchWithTimeout = async (path, options = {}, timeoutMs = 10000) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await apiFetch(path, { ...options, signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    };
+
     const fetchConfigData = async (options = {}) => {
         try {
             if (options.skipDuringRefresh && isRefreshingRef.current) return;
@@ -128,9 +160,23 @@ const App = () => {
                 setIsLoading(false);
                 return;
             }
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                showNotice('配置读取失败：' + (errorData.error || errorData.message || res.status));
+                return;
+            }
             const data = await res.json();
             if (options.skipDuringRefresh && isRefreshingRef.current) return;
-            setServers(Array.isArray(data.servers) ? data.servers : []);
+            if (Array.isArray(data.servers)) {
+                if (data.servers.length === 0 && serversRef.current.length > 0 && !options.allowEmptyServers) {
+                    showNotice('配置响应为空，已保留当前列表');
+                    return;
+                }
+                setServers(data.servers);
+            } else {
+                showNotice('配置响应异常，已保留当前列表');
+                return;
+            }
             const nextUpdatedAt = Number(data.updatedAt) || 0;
             const nextRevision = data.revision || '';
             setConfigUpdatedAt(nextUpdatedAt);
@@ -144,11 +190,31 @@ const App = () => {
                 setIconLib(data.icons);
                 setIconInput(localStorage.getItem('last_icon_input') || "");
             }
+            writeCachedConfig(data);
             if (!options.skipUpdateCheck) checkForUpdate(false);
-        } catch(e) { console.error("读取配置失败", e); }
+        } catch(e) {
+            console.error("读取配置失败", e);
+            if (cachedConfig && Array.isArray(cachedConfig.servers)) {
+                setServers(cachedConfig.servers);
+                if (cachedConfig.icons) setIconLib(cachedConfig.icons);
+                if (cachedConfig.telegram) setTelegramForm(cachedConfig.telegram);
+                if (cachedConfig.logging) setLoggingEnabled(Boolean(cachedConfig.logging.enabled));
+                if (Number.isFinite(Number(cachedConfig.updatedAt))) {
+                    setConfigUpdatedAt(Number(cachedConfig.updatedAt));
+                    configUpdatedAtRef.current = Number(cachedConfig.updatedAt);
+                }
+                if (cachedConfig.revision) {
+                    setConfigRevision(String(cachedConfig.revision));
+                    configRevisionRef.current = String(cachedConfig.revision);
+                }
+                setNotifyEnabled(Boolean(cachedConfig.notifyEnabled));
+                showNotice('配置读取失败，已使用本地缓存');
+            }
+        }
     };
 
     useEffect(() => { fetchConfigData().finally(() => setIsLoading(false)); }, []);
+    useEffect(() => { serversRef.current = servers; }, [servers]);
     useEffect(() => {
         const timer = setInterval(() => {
             if (document.visibilityState === 'visible') {
@@ -241,17 +307,22 @@ const App = () => {
         const nextRevision = saveResult.revision || '';
         setConfigRevision(nextRevision);
         configRevisionRef.current = nextRevision;
+        writeCachedConfig({ ...saveResult, servers: mergedServers, icons: newIcons, telegram: nextTelegram, logging: { enabled: loggingEnabled }, updatedAt: nextUpdatedAt, revision: nextRevision, notifyEnabled });
         return nextUpdatedAt;
     };
 
     const manualPing = async (currentServers = servers, requestUpdatedAt = configUpdatedAt, options = {}) => {
         if (isRefreshing || !currentServers.length) return;
+        const nextRefreshMode = 'probe';
         isRefreshingRef.current = true;
         setIsRefreshing(true);
+        setRefreshMode(nextRefreshMode);
         try {
             let cursor = 0;
             let updatedData = null;
             const batchSize = 3;
+            const originalById = new Map(currentServers.map((server) => [String(server.id), server]));
+            let skippedCount = 0;
             do {
                 const pendingIds = new Set(
                     currentServers.slice(cursor, cursor + batchSize).map((server) => server.id)
@@ -259,14 +330,40 @@ const App = () => {
                 if (pendingIds.size) {
                     setServers((current) => current.map((server) => pendingIds.has(server.id) ? { ...server, status: 'updating', latency: 0 } : server));
                 }
-                const res = await apiFetch('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: Boolean(options.forceMedia), refreshLastPlayed: Boolean(options.refreshLastPlayed), cursor }) });
-                if (!res.ok) throw new Error('测速接口异常');
+                let res;
+                try {
+                    res = await apiFetchWithTimeout('/api/ping-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forceMedia: false, refreshLastPlayed: false, cursor }) }, 15000);
+                    if (!res.ok) {
+                        const errorData = await res.json().catch(() => ({}));
+                        throw new Error(errorData.error || errorData.message || '测速接口异常');
+                    }
+                } catch(e) {
+                    if (e && e.name === 'AbortError') skippedCount += pendingIds.size || 1;
+                    setServers((current) => current.map((server) => {
+                        if (!pendingIds.has(server.id)) return server;
+                        const previous = originalById.get(String(server.id)) || server;
+                        return { ...server, status: previous.status || 'unknown', latency: previous.latency || 0 };
+                    }));
+                    updatedData = { hasMore: cursor + batchSize < currentServers.length, nextCursor: cursor + batchSize };
+                    cursor = updatedData.nextCursor || 0;
+                    continue;
+                }
                 updatedData = await res.json();
-                const futureIds = new Set(updatedData.hasMore ? currentServers.slice(Number(updatedData.nextCursor) || 0).map((server) => server.id) : []);
-                setServers(Array.isArray(updatedData.servers)
-                    ? updatedData.servers.map((server) => futureIds.has(server.id) ? { ...server, status: 'updating', latency: 0 } : server)
-                    : []
-                );
+                setServers((current) => {
+                    if (!Array.isArray(updatedData.servers)) return current;
+                    if (updatedData.servers.length === 0 && current.length > 0) return current;
+                    const updatedById = new Map(updatedData.servers.map((server) => [String(server.id), server]));
+                    const seen = new Set();
+                    const merged = current.map((server) => {
+                        const key = String(server.id);
+                        seen.add(key);
+                        return updatedById.get(key) || server;
+                    });
+                    for (const server of updatedData.servers) {
+                        if (!seen.has(String(server.id))) merged.push(server);
+                    }
+                    return merged;
+                });
                 setIconLib(updatedData.icons);
                 setTelegramForm(updatedData.telegram || telegramForm);
                 if (updatedData.logging) setLoggingEnabled(Boolean(updatedData.logging.enabled));
@@ -277,18 +374,22 @@ const App = () => {
                 configUpdatedAtRef.current = nextUpdatedAt;
                 configRevisionRef.current = nextRevision;
                 setNotifyEnabled(Boolean(updatedData.notifyEnabled));
+                writeCachedConfig(updatedData);
                 cursor = updatedData.nextCursor || 0;
             } while (updatedData && updatedData.hasMore);
+            if (skippedCount) showNotice('已跳过 ' + skippedCount + ' 个超时节点');
         } catch(e) {
-            showNotice("测速接口异常");
+            showNotice(e.message || "测速接口异常");
         } finally {
             isRefreshingRef.current = false;
             setIsRefreshing(false);
+            setRefreshMode('');
         }
     };
 
     const pingSingleServer = async (serverId, forceMedia = false, refreshLastPlayed = false) => {
         if (!serverId) return;
+        const previousById = new Map(servers.map((server) => [String(server.id), server]));
         setServers((current) => current.map((server) => String(server.id) === String(serverId) ? { ...server, status: 'updating', latency: 0 } : server));
         try {
             const res = await apiFetch('/api/ping-single', {
@@ -296,12 +397,54 @@ const App = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ serverId, forceMedia: Boolean(forceMedia), refreshLastPlayed: Boolean(refreshLastPlayed) })
             });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok || !data.ok) throw new Error(data.error || '单体测速失败');
+            const responseText = await res.text();
+            let data = {};
+            try { data = responseText ? JSON.parse(responseText) : {}; } catch(parseError) { data = {}; }
+            if (!res.ok || !data.ok) throw new Error(data.error || data.message || responseText.slice(0, 160) || ('单体测速失败 HTTP ' + res.status));
             if (data.server) {
                 setServers((current) => current.map((server) => String(server.id) === String(serverId) ? data.server : server));
             } else if (Array.isArray(data.servers)) {
-                setServers(data.servers);
+                setServers((current) => {
+                    if (data.servers.length === 0 && current.length > 0) return current;
+                    return data.servers;
+                });
+            }
+            writeCachedConfig(data);
+            if (data.icons) setIconLib(data.icons);
+            if (data.telegram) setTelegramForm(data.telegram);
+            if (data.logging) setLoggingEnabled(Boolean(data.logging.enabled));
+            const nextUpdatedAt = Number(data.updatedAt) || configUpdatedAtRef.current;
+            const nextRevision = data.revision || configRevisionRef.current;
+            setConfigUpdatedAt(nextUpdatedAt);
+            setConfigRevision(nextRevision);
+            configUpdatedAtRef.current = nextUpdatedAt;
+            configRevisionRef.current = nextRevision;
+            setNotifyEnabled(Boolean(data.notifyEnabled));
+        } catch(e) {
+            setServers((current) => current.map((server) => {
+                if (String(server.id) !== String(serverId)) return server;
+                return previousById.get(String(serverId)) || { ...server, status: 'unknown', latency: 0 };
+            }));
+            showNotice(e.message || '单体测速失败');
+        }
+    };
+
+    const refreshSingleLastPlayed = async (serverId) => {
+        if (!serverId || refreshingLastPlayedId) return;
+        const previousById = new Map(serversRef.current.map((server) => [String(server.id), server]));
+        setRefreshingLastPlayedId(serverId);
+        try {
+            const res = await apiFetchWithTimeout('/api/ping-single', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ serverId, forceMedia: false, refreshLastPlayed: true })
+            }, 25000);
+            const responseText = await res.text();
+            let data = {};
+            try { data = responseText ? JSON.parse(responseText) : {}; } catch(parseError) { data = {}; }
+            if (!res.ok || !data.ok) throw new Error(data.error || data.message || responseText.slice(0, 160) || ('上次播放刷新失败 HTTP ' + res.status));
+            if (data.server) {
+                setServers((current) => current.map((server) => String(server.id) === String(serverId) ? data.server : server));
             }
             if (data.icons) setIconLib(data.icons);
             if (data.telegram) setTelegramForm(data.telegram);
@@ -314,8 +457,13 @@ const App = () => {
             configRevisionRef.current = nextRevision;
             setNotifyEnabled(Boolean(data.notifyEnabled));
         } catch(e) {
-            await fetchConfigData({ skipUpdateCheck: true, silentAuth: true });
-            showNotice(e.message || '单体测速失败');
+            setServers((current) => current.map((server) => {
+                if (String(server.id) !== String(serverId)) return server;
+                return previousById.get(String(serverId)) || server;
+            }));
+            showNotice(e.message || '上次播放刷新失败');
+        } finally {
+            setRefreshingLastPlayedId(null);
         }
     };
 
@@ -948,6 +1096,7 @@ const App = () => {
         return uptime === '---' ? null : parseFloat(uptime);
     };
     const sortServers = (list) => {
+        if (availabilitySort === 'none') return list;
         const rank = { offline: 0, updating: 1, unknown: 2, online: 3 };
         return [...list].sort((a, b) => {
             if (availabilitySort === 'asc' || availabilitySort === 'desc') {
@@ -1038,31 +1187,55 @@ const App = () => {
             </div>
 
             <div className="mobile-page w-full max-w-[1600px] mx-auto px-4 py-8 md:px-8 md:py-12 relative z-10">
-                {/* Header */}
-                <header className="mobile-header flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
-                    <div className="mobile-title-row">
-                        <h1 className="text-3xl md:text-4xl font-black tracking-tight flex items-center gap-3">
-                            <div className="brand-icon-shell w-14 h-14 rounded-[1.1rem] backdrop-blur-sm flex items-center justify-center">
-                                <Icons.Cloud className="w-8 h-8 text-sky-500 drop-shadow-sm" />
-                            </div>
-                            <span className="brand-title">
-                                Emby 服务器探针
-                            </span>
-                        </h1>
-                        <p className="mobile-subtitle text-[11px] text-slate-500 font-bold tracking-widest mt-3 uppercase flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full dot-online"></span>
-                            Emby server probe
-                        </p>
+                <header className="hidden lg:grid grid-cols-[1fr_auto_1fr] items-center gap-6 sticky top-4 z-50 mb-10 nav-header">
+                    <div className="flex items-center gap-3 justify-self-start min-w-0">
+                        <div className="brand-icon-shell w-14 h-14 rounded-[1.1rem] backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+                            <Icons.Cloud className="w-8 h-8 text-sky-500 drop-shadow-sm" />
+                        </div>
+                        <div className="min-w-0">
+                            <h1 className="text-2xl xl:text-3xl font-black tracking-tight flex items-center gap-3 min-w-0">
+                                <span className="brand-title truncate">Emby 服务器探针</span>
+                            </h1>
+                            <p className="mobile-subtitle text-[11px] text-slate-500 font-bold tracking-widest mt-2 uppercase flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full dot-online"></span>
+                                Emby server probe
+                            </p>
+                        </div>
                     </div>
 
-                    <div className="mobile-actions flex flex-wrap items-center gap-3">
-                        {/* 辅助功能组 (Icon-only) */}
-                        <div className="mobile-icon-group flex items-center gap-2 mr-2">
+                    <div className="justify-self-center">
+                        <div className="tab-nav-center p-1.5 rounded-full flex gap-1 items-center w-full md:w-auto glass-panel bg-white/40">
+                        <button
+                            onClick={() => setActiveTab('cards')}
+                            className={"whitespace-nowrap flex-shrink-0 justify-center px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'cards' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
+                        >
+                            <Icons.LayoutGrid className="w-4 h-4" />
+                            看板
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('growth')}
+                            className={"whitespace-nowrap flex-shrink-0 justify-center px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'growth' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
+                        >
+                            <Icons.TrendingUp className="w-4 h-4" />
+                            资源增长榜
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('dashboard')}
+                            className={"whitespace-nowrap flex-shrink-0 justify-center px-8 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 " + (activeTab === 'dashboard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}
+                        >
+                            <Icons.Activity className="w-4 h-4" />
+                            历史大盘
+                        </button>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 justify-self-end">
+                        <div className="mobile-icon-group flex items-center gap-2 flex-shrink-0">
                             <div className="relative" ref={privacyMenuRef}>
                                 <button
                                     onClick={() => setIsPrivacyMenuOpen(!isPrivacyMenuOpen)}
                                     title={"隐私显示：" + privacyLabel}
-                                    className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (privacyMode !== 'none' ? "bg-slate-200 text-slate-700 shadow-inner" : "bg-white/70 text-slate-500 hover:text-slate-800 hover:bg-white")}
+                                    className={"whitespace-nowrap flex-shrink-0 w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (privacyMode !== 'none' ? "bg-slate-200 text-slate-700 shadow-inner" : "bg-white/70 text-slate-500 hover:text-slate-800 hover:bg-white")}
                                 >
                                     {privacyMode !== 'none' ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
                                 </button>
@@ -1084,7 +1257,7 @@ const App = () => {
                             <button
                                 onClick={() => { setIsSettingsOpen(true); fetchRuntimeLogs(); }}
                                 title="系统设置"
-                                className="relative w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
+                                className="whitespace-nowrap flex-shrink-0 relative w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
                             >
                                 <Icons.Settings className="w-5 h-5" />
                                 {updateInfo && updateInfo.hasUpdate && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_0_2px_rgba(255,255,255,0.92)]"></span>}
@@ -1092,40 +1265,99 @@ const App = () => {
                             <button
                                 onClick={() => setShowLastPlayed((current) => !current)}
                                 title={showLastPlayed ? '隐藏上次播放时间' : '显示上次播放时间'}
-                                className={"relative w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (showLastPlayed ? 'bg-white text-slate-700 hover:text-slate-900 hover:bg-white' : 'bg-slate-200 text-slate-500 hover:text-slate-700')}
+                                className={"whitespace-nowrap flex-shrink-0 relative w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (showLastPlayed ? 'bg-white text-slate-700 hover:text-slate-900 hover:bg-white' : 'bg-slate-200 text-slate-500 hover:text-slate-700')}
                             >
-                                <Icons.Glasses className="w-5 h-5" />
+                                {showLastPlayed ? <Icons.Clock className="w-5 h-5" /> : <Icons.ClockOff className="w-5 h-5" />}
                             </button>
                             <button
                                 onClick={() => setShareModalTarget('public')}
                                 title="公开页"
-                                className="md:hidden w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
+                                className="whitespace-nowrap flex-shrink-0 w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm"
                             >
                                 <Icons.Share2 className="w-5 h-5" />
                             </button>
                         </div>
 
-                        {/* 核心操作组 */}
-                        <button onClick={() => setShareModalTarget('public')} className="hidden md:flex px-4 py-2.5 h-11 bg-white/70 hover:bg-white text-slate-600 rounded-[14px] text-sm font-bold border border-white shadow-sm transition-all items-center gap-2">
-                            <Icons.Share2 className="w-4 h-4" /> 公开页
-                        </button>
-                        <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
+                        <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="whitespace-nowrap flex-shrink-0 mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
                             <Icons.Plus className="w-4 h-4" /> 添加服务器
                         </button>
                         <button
-                            onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: true, refreshLastPlayed: true })}
+                            onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: false, refreshLastPlayed: false })}
                             disabled={isRefreshing}
-                            className="mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap"
+                            className="whitespace-nowrap flex-shrink-0 mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2"
                         >
-                            <Icons.RefreshCw className={"w-4 h-4 " + (isRefreshing ? 'animate-spin' : '')} />
+                            <Icons.RefreshCw className={"w-4 h-4 " + (refreshMode === 'probe' ? 'animate-spin' : '')} />
                             <span className="inline-flex items-center justify-center tabular-nums">
-                                {isRefreshing ? '正在刷新...' : '刷新状态/资源'}
+                                {refreshMode === 'probe' ? '刷新中...' : '刷新状态'}
+                            </span>
+                        </button>
+                    </div>
+                </header>
+
+                <header className="nav-header sticky top-2 z-50 mb-6 flex lg:hidden flex-col items-center justify-between gap-4">
+                    <div className="mobile-title-row flex items-center gap-3 w-full">
+                        <div className="brand-icon-shell w-14 h-14 rounded-[1.1rem] backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+                            <Icons.Cloud className="w-8 h-8 text-sky-500 drop-shadow-sm" />
+                        </div>
+                        <div className="min-w-0">
+                            <h1 className="text-3xl md:text-4xl font-black tracking-tight flex items-center gap-3 min-w-0">
+                                <span className="brand-title truncate">Emby 服务器探针</span>
+                            </h1>
+                            <p className="mobile-subtitle text-[11px] text-slate-500 font-bold tracking-widest mt-2 uppercase flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full dot-online"></span>
+                                Emby server probe
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-center w-full">
+                        <div className="tab-nav-center p-1.5 rounded-full flex gap-1 items-center w-full glass-panel bg-white/40">
+                            <button onClick={() => setActiveTab('cards')} className={"flex-1 justify-center px-4 sm:px-6 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap " + (activeTab === 'cards' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}>
+                                <Icons.LayoutGrid className="w-4 h-4" />
+                                看板
+                            </button>
+                            <button onClick={() => setActiveTab('growth')} className={"flex-1 justify-center px-4 sm:px-6 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap " + (activeTab === 'growth' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}>
+                                <Icons.TrendingUp className="w-4 h-4" />
+                                资源增长榜
+                            </button>
+                            <button onClick={() => setActiveTab('dashboard')} className={"flex-1 justify-center px-4 sm:px-6 py-2.5 rounded-full text-sm font-black transition-all flex items-center gap-2 whitespace-nowrap " + (activeTab === 'dashboard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-white/45')}>
+                                <Icons.Activity className="w-4 h-4" />
+                                历史大盘
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="mobile-actions flex flex-wrap items-center gap-2 w-full">
+                        <div className="mobile-icon-group flex items-center gap-2">
+                            <button onClick={() => setIsPrivacyMenuOpen(!isPrivacyMenuOpen)} title={"隐私显示：" + privacyLabel} className={"w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (privacyMode !== 'none' ? "bg-slate-200 text-slate-700 shadow-inner" : "bg-white/70 text-slate-500 hover:text-slate-800 hover:bg-white")}>
+                                {privacyMode !== 'none' ? <Icons.EyeOff className="w-5 h-5" /> : <Icons.Eye className="w-5 h-5" />}
+                            </button>
+                            <button onClick={() => { setIsSettingsOpen(true); fetchRuntimeLogs(); }} title="系统设置" className="relative w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm">
+                                <Icons.Settings className="w-5 h-5" />
+                                {updateInfo && updateInfo.hasUpdate && <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_0_2px_rgba(255,255,255,0.92)]"></span>}
+                            </button>
+                            <button onClick={() => setShowLastPlayed((current) => !current)} title={showLastPlayed ? '隐藏上次播放时间' : '显示上次播放时间'} className={"relative w-11 h-11 rounded-[14px] transition-all flex items-center justify-center shadow-sm border border-slate-200/70 " + (showLastPlayed ? 'bg-white text-slate-700 hover:text-slate-900 hover:bg-white' : 'bg-slate-200 text-slate-500 hover:text-slate-700')}>
+                                {showLastPlayed ? <Icons.Clock className="w-5 h-5" /> : <Icons.ClockOff className="w-5 h-5" />}
+                            </button>
+                            <button onClick={() => setShareModalTarget('public')} title="公开页" className="w-11 h-11 rounded-[14px] bg-white/70 border border-slate-200/70 text-slate-500 hover:text-blue-600 hover:bg-white transition-all flex items-center justify-center shadow-sm">
+                                <Icons.Share2 className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <button onClick={openAddServerModal} disabled={isRefreshing || isSavingServer} className="mobile-primary-btn px-5 py-2.5 h-11 bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed rounded-[14px] text-sm font-bold shadow-[0_4px_14px_0_rgba(16,185,129,0.28)] transition-all flex items-center gap-2">
+                            <Icons.Plus className="w-4 h-4" /> 添加服务器
+                        </button>
+                        <button onClick={() => manualPing(servers, configUpdatedAt, { forceMedia: false, refreshLastPlayed: false })} disabled={isRefreshing} className="mobile-refresh-btn px-4 py-2.5 h-11 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60 rounded-[14px] text-sm font-bold shadow-[0_6px_20px_rgba(37,99,235,0.3)] transition-all flex items-center gap-2 whitespace-nowrap">
+                            <Icons.RefreshCw className={"w-4 h-4 " + (refreshMode === 'probe' ? 'animate-spin' : '')} />
+                            <span className="inline-flex items-center justify-center tabular-nums">
+                                {refreshMode === 'probe' ? '刷新中...' : '刷新状态'}
                             </span>
                         </button>
                     </div>
                 </header>
 
                 {/* Overview Stats */}
+                {activeTab === 'cards' && (
                 <div className="mobile-stats-strip grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                     {[
                         { label: '在线服务器', value: onlineCount + "/" + servers.length, icon: Icons.CheckCircle2, color: 'text-emerald-500', glow: 'glow-online', cardClass: 'overview-stat-online' },
@@ -1145,58 +1377,44 @@ const App = () => {
                         </div>
                     ))}
                 </div>
+                )}
 
                 {/* Action Bar: View Toggles & Search */}
+                {activeTab === 'cards' && (
                 <div className="mobile-action-bar flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                    <div className="mobile-tab-nav tab-nav w-fit">
-                        <button onClick={() => setActiveTab('cards')} className={"tab-btn " + (activeTab === 'cards' ? 'active' : '')}>
-                            <Icons.LayoutGrid className="w-4 h-4" /> 看板
-                        </button>
-                        <button onClick={() => setActiveTab('growth')} className={"tab-btn " + (activeTab === 'growth' ? 'active' : '')}>
-                            <Icons.TrendingUp className="w-4 h-4" />
-                            <span className="mobile-tab-full">资源增长榜</span>
-                            <span className="mobile-tab-short">增长</span>
-                        </button>
-                        <button onClick={() => setActiveTab('dashboard')} className={"tab-btn " + (activeTab === 'dashboard' ? 'active' : '')}>
-                            <Icons.Activity className="w-4 h-4" />
-                            <span className="mobile-tab-full">历史大盘</span>
-                            <span className="mobile-tab-short">历史</span>
-                        </button>
+                    <div
+                        className="md:hidden flex items-center justify-center py-2 cursor-pointer opacity-70 hover:opacity-100 transition-opacity w-full"
+                        onClick={() => setIsMobileControlsOpen(!isMobileControlsOpen)}
+                    >
+                        <div className="flex-1 h-px bg-slate-300/40"></div>
+                        <Icons.ChevronDown className={"w-4 h-4 mx-2 text-slate-400 transition-transform " + (isMobileControlsOpen ? "rotate-180" : "")} />
+                        <div className="flex-1 h-px bg-slate-300/40"></div>
                     </div>
 
-                    <div className="mobile-controls flex flex-wrap items-center gap-3 w-full md:w-auto">
+                    <div className={(isMobileControlsOpen ? "flex " : "hidden ") + "md:flex mobile-controls flex-wrap items-center gap-3 w-full md:w-auto"}>
                         {/* 时间范围胶囊 (仅看板模式) */}
-                        <div className={"mobile-control-row " + (activeTab === 'cards' ? 'has-range' : 'no-range')}>
-                            {activeTab === 'cards' && (
+                        <div className="mobile-control-row has-range">
                             <div className="mobile-range-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
                                 <button onClick={() => setAvailabilityRange('day')} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (availabilityRange === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>24H</button>
                                 <button onClick={() => setAvailabilityRange('week')} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (availabilityRange === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>7天</button>
                             </div>
-                            )}
-                            {activeTab === 'growth' && (
-                            <div className="mobile-range-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
-                                {growthMetricOptions.map((option) => (
-                                    <button key={option.key} onClick={() => setGrowthMetric(option.key)} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (growthMetric === option.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>{option.label}</button>
+                        {/* 状态筛选胶囊 */}
+                            <div className="mobile-status-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
+                                {['all', 'online', 'offline'].map((status) => (
+                                    <button key={status} onClick={() => setStatusFilter(status)} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (statusFilter === status ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                                        {status === 'all' ? '全部' : status === 'online' ? '在线' : '离线'}
+                                    </button>
                                 ))}
                             </div>
-                            )}
-                        {/* 状态筛选胶囊 */}
-                        <div className="mobile-status-group mobile-filter-group hidden sm:flex glass-panel p-1.5 rounded-[14px]">
-                            {['all', 'online', 'offline'].map((status) => (
-                                <button key={status} onClick={() => setStatusFilter(status)} className={"px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all " + (statusFilter === status ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
-                                    {status === 'all' ? '全部' : status === 'online' ? '在线' : '离线'}
-                                </button>
-                            ))}
-                        </div>
-                        <button
-                            onClick={nextAvailabilitySort}
-                            className={"mobile-sort-button hidden sm:flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold uppercase tracking-wider transition-all items-center gap-1.5 " + (availabilitySort === 'none' ? 'text-slate-500 hover:text-slate-700' : 'bg-white/80 text-slate-800 shadow-sm')}
-                            title="点击切换：默认排序 / 可用率升序 / 可用率降序"
-                        >
-                            <Icons.BarChart3 className="w-3.5 h-3.5" />
-                            <span>排序</span>
-                            {availabilitySortArrow && <span className="text-sm leading-none">{availabilitySortArrow}</span>}
-                        </button>
+                            <button
+                                onClick={nextAvailabilitySort}
+                                className={"mobile-sort-button hidden sm:flex glass-panel px-3.5 py-2 rounded-[14px] text-[11px] font-bold uppercase tracking-wider transition-all items-center gap-1.5 " + (availabilitySort === 'none' ? 'text-slate-500 hover:text-slate-700' : 'bg-white/80 text-slate-800 shadow-sm')}
+                                title="点击切换：默认排序 / 可用率升序 / 可用率降序"
+                            >
+                                <Icons.BarChart3 className="w-3.5 h-3.5" />
+                                <span>排序</span>
+                                {availabilitySortArrow && <span className="text-sm leading-none">{availabilitySortArrow}</span>}
+                            </button>
                         </div>
                         {/* 搜索框 */}
                         <div className="mobile-search relative w-full sm:w-64">
@@ -1211,9 +1429,10 @@ const App = () => {
                         </div>
                     </div>
                 </div>
+                )}
 
                 {/* 空状态 */}
-                {filteredServers.length === 0 && (
+                {activeTab === 'cards' && filteredServers.length === 0 && (
                     <div className="py-20 flex flex-col items-center justify-center text-center">
                         <div className="w-20 h-20 bg-slate-200/50 rounded-full flex items-center justify-center mb-4"><Icons.Search className="w-8 h-8 text-slate-400" /></div>
                         <h3 className="text-lg font-bold text-slate-700 mb-1">未找到匹配的服务器</h3>
@@ -1231,6 +1450,7 @@ const App = () => {
                             const keepAliveButton = getKeepAliveButtonState(s);
                             const lastPlayedAt = s.mediaStats && s.mediaStats.enabled ? Number(s.mediaStats.lastPlayedAt) || 0 : 0;
                             const lastPlayedText = lastPlayedAt ? formatLastPlayedTime(lastPlayedAt) : (s.mediaStats && s.mediaStats.enabled && s.mediaStats.lastPlayedError ? '读取失败' : '未知');
+                            const isRefreshingLastPlayed = String(refreshingLastPlayedId || '') === String(s.id);
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
                                 offline: { text: 'text-rose-700', bg: 'bg-rose-500/10', border: 'border-rose-200', dotClass: 'dot-offline', glowClass: 'glow-offline' },
@@ -1333,7 +1553,15 @@ const App = () => {
                                     {showLastPlayed && s.mediaStats && s.mediaStats.enabled && (
                                         <div className="server-card-section mt-3 rounded-2xl px-4 py-3 relative z-10 flex items-center justify-between gap-3">
                                             <div className="flex items-center gap-2 min-w-0 text-[11px] font-black text-slate-500 uppercase tracking-widest">
-                                                <Icons.Clock className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => refreshSingleLastPlayed(s.id)}
+                                                    disabled={Boolean(refreshingLastPlayedId)}
+                                                    className="w-6 h-6 rounded-lg flex items-center justify-center text-sky-500 hover:bg-sky-50 hover:text-sky-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                                                    title="刷新该服务器上次播放时间"
+                                                >
+                                                    <Icons.Clock className={"w-3.5 h-3.5 " + (isRefreshingLastPlayed ? 'animate-spin' : '')} />
+                                                </button>
                                                 <span className="truncate">上次播放</span>
                                             </div>
                                             <button
@@ -1433,12 +1661,15 @@ const App = () => {
                                     {mediaGrowthRows.map((row, index) => {
                                         const s = row.server;
                                         const iconImg = getDisplayIcon(s);
-                                        const rankTone = index === 0 ? 'bg-emerald-500 text-white border-emerald-400' : index === 1 ? 'bg-blue-500 text-white border-blue-400' : index === 2 ? 'bg-amber-500 text-white border-amber-400' : 'bg-white/70 text-slate-500 border-white';
+                                        const topGrowthValue = Math.max(0, Number(mediaGrowthRows[0] && mediaGrowthRows[0].sortValue) || 0);
+                                        const growthPercent = topGrowthValue > 0 ? Math.min(100, Math.max(0, (Math.max(0, Number(row.sortValue) || 0) / topGrowthValue) * 100)) : 0;
+                                        const rankTone = index === 0 ? 'bg-gradient-to-br from-yellow-300 to-amber-500 text-white border-yellow-200 shadow-[0_0_22px_rgba(245,158,11,0.38)]' : index === 1 ? 'bg-gradient-to-br from-slate-300 to-slate-400 text-white border-slate-200 shadow-sm' : index === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-700 text-white border-amber-500 shadow-sm' : 'bg-white/70 text-slate-500 border-white';
                                         const valueTone = row.sortValue > 0 ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : row.sortValue < 0 ? 'text-rose-600 bg-rose-50 border-rose-100' : 'text-slate-500 bg-slate-100 border-slate-200';
                                         return (
-                                            <div key={s.id} className="growth-rank-row dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 xl:grid-cols-[minmax(260px,0.38fr)_minmax(0,1fr)_minmax(120px,0.16fr)] gap-4 xl:items-center">
-                                                <div className="growth-rank-main flex items-center gap-4 min-w-0">
-                                                    <div className={"growth-rank-badge w-10 h-10 rounded-2xl border flex items-center justify-center font-black text-sm shadow-sm flex-shrink-0 tabular-nums " + rankTone}>#{index + 1}</div>
+                                            <div key={s.id} className="growth-rank-row dashboard-row p-4 sm:p-5 rounded-2xl grid grid-cols-1 lg:grid-cols-[80px_minmax(250px,1.5fr)_1fr_1fr_1fr_minmax(200px,1fr)] gap-4 lg:items-center">
+                                                <div className="growth-rank-main flex items-center gap-4 min-w-0 lg:contents">
+                                                    <div className={"growth-rank-badge w-10 h-10 rounded-2xl border flex items-center justify-center font-black text-sm shadow-sm flex-shrink-0 tabular-nums lg:mx-auto " + rankTone}>#{index + 1}</div>
+                                                    <div className="growth-server-cell flex items-center gap-4 min-w-0">
                                                     <div className="growth-server-icon w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center font-black text-xl text-slate-600 overflow-hidden flex-shrink-0">
                                                         {hideServerName ? <Icons.Server className="w-5 h-5" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-1.5" onError={(e) => {e.target.style.display='none'}} /> : s.name[0])}
                                                     </div>
@@ -1446,9 +1677,10 @@ const App = () => {
                                                         <div className="font-black text-slate-800 text-lg truncate tracking-tight">{hideServerName ? 'Node Hidden' : s.name}</div>
                                                         <div className="mt-1 text-[11px] text-slate-400 font-mono font-semibold truncate">{hideServerUrl ? 'https://****.****' : stripProtocol(s.url)}</div>
                                                     </div>
+                                                    </div>
                                                 </div>
 
-                                                <div className="growth-metric-grid grid grid-cols-3 gap-2 min-w-0">
+                                                <div className="growth-metric-grid grid grid-cols-3 gap-2 min-w-0 lg:contents">
                                                     {[
                                                         { label: '电影', key: 'movie', icon: Icons.Film },
                                                         { label: '剧集', key: 'series', icon: Icons.Tv },
@@ -1458,25 +1690,28 @@ const App = () => {
                                                         const delta = row.deltas[item.key];
                                                         const count = s.mediaStats && s.mediaStats.counts ? s.mediaStats.counts[item.key] : 0;
                                                         return (
-                                                            <div key={item.key} className="growth-metric-card rounded-2xl bg-white/50 border border-white px-3 py-2 min-w-0">
-                                                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-black">
+                                                            <div key={item.key} className="growth-metric-card rounded-2xl bg-white/50 border border-white px-3 py-2 min-w-0 lg:bg-transparent lg:border-0 lg:p-0 lg:rounded-none lg:shadow-none">
+                                                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-black lg:text-[11px]">
                                                                     <ItemIcon className="w-3.5 h-3.5 flex-shrink-0" />
                                                                     <span className="truncate">{item.label}</span>
                                                                 </div>
-                                                                <div className="mt-1 flex items-baseline justify-between gap-2">
-                                                                    <span className="text-sm font-black text-slate-700 tabular-nums truncate">{count}</span>
-                                                                    <span className={"text-[11px] font-black tabular-nums " + (delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-slate-400')}>{formatSignedCount(delta)}</span>
+                                                                <div className="mt-1 flex items-center gap-2 lg:gap-2.5">
+                                                                    <span className="text-sm font-black text-slate-700 tabular-nums truncate">{Number(count || 0).toLocaleString('zh-CN')}</span>
+                                                                    <span className={"px-2 py-0.5 rounded-full text-[11px] font-black tabular-nums border " + (delta > 0 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : delta < 0 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-slate-100 text-slate-400 border-slate-200')}>{formatSignedCount(delta)}</span>
                                                                 </div>
                                                             </div>
                                                         );
                                                     })}
                                                 </div>
 
-                                                <div className="growth-total-cell xl:text-right">
+                                                <div className="growth-total-cell lg:text-right">
                                                     <div className={"growth-total-pill inline-flex min-w-[96px] items-center justify-center px-4 py-2.5 rounded-2xl border text-xl font-black tabular-nums " + valueTone}>
                                                         {formatSignedCount(row.sortValue)}
                                                     </div>
-                                                    <div className="mt-1 text-[10px] text-slate-400 font-bold uppercase tracking-widest xl:text-center">当前 {row.currentValue}</div>
+                                                    <div className="mt-2 h-1.5 rounded-full bg-white/70 border border-white overflow-hidden">
+                                                        <div className="h-full rounded-full bg-emerald-500" style={{ width: growthPercent + '%' }}></div>
+                                                    </div>
+                                                    <div className="mt-1 text-[10px] text-slate-400 font-bold uppercase tracking-widest lg:text-center">当前 {Number(row.currentValue || 0).toLocaleString('zh-CN')}</div>
                                                 </div>
                                             </div>
                                         );
@@ -1488,37 +1723,64 @@ const App = () => {
                 )}
 
                 {/* Dashboard View */}
-                {activeTab === 'dashboard' && sortedServers.length > 0 && (
-                    <div className="mobile-dashboard dashboard-shell rounded-[2rem] p-5 flex flex-col gap-4 relative overflow-hidden">
-                        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent pointer-events-none"></div>
-                        {sortedServers.map((s) => {
+                {activeTab === 'dashboard' && servers.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {servers.map((s) => {
                             const iconImg = getDisplayIcon(s);
-                            const stats = getAvailabilityStats(s);
-                            const rowClass = ['online', 'offline', 'updating'].includes(s.status) ? s.status : 'unknown';
+                            const stats = getAvailabilityStats(s, 'day');
+                            const uptimeValue = stats.uptime === '---' ? null : parseFloat(stats.uptime);
+                            const uptimeTone = uptimeValue !== null && uptimeValue < 90 ? 'text-rose-600' : 'text-slate-900';
+                            const now = Date.now();
+                            const offlineSlices = Array.isArray(s.history)
+                                ? (() => {
+                                    const seen = new Set();
+                                    s.history.forEach((item) => {
+                                        if (!item || typeof item !== 'object' || !item.time) return;
+                                        const time = Number(item.time);
+                                        if (!Number.isFinite(time) || time < now - 24 * 60 * 60 * 1000) return;
+                                        if (getHistoryStatus(item) !== 'offline') return;
+                                        seen.add(Math.floor(time / 60000));
+                                    });
+                                    return seen.size;
+                                })()
+                                : 0;
+                            const isOnline = s.status === 'online';
+                            const isOffline = s.status === 'offline';
+                            const statusText = isOnline ? '当前在线' : isOffline ? '离线' : '测速中';
+                            const statusDot = isOnline ? 'dot-online' : isOffline ? 'dot-offline' : 'dot-updating';
+                            const statusTone = isOnline ? 'text-emerald-600' : isOffline ? 'text-rose-600' : 'text-blue-600';
+
                             return (
-                                <div key={s.id} className={"dashboard-row dashboard-row-" + rowClass + " p-4 sm:p-5 rounded-2xl transition-all grid grid-cols-1 xl:grid-cols-[minmax(240px,0.36fr)_minmax(0,1fr)] xl:items-center gap-4 sm:gap-5"}>
-                                    <div className="dashboard-node-panel flex items-center gap-4 sm:gap-5 min-w-0 relative rounded-2xl px-4 py-4">
-                                        <div className={"absolute -left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full blur-[15px] " + (s.status === 'online' ? 'glow-online' : s.status === 'offline' ? 'glow-offline' : 'bg-blue-400/20')}></div>
-                                        <div className="w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center font-black text-xl text-slate-600 z-10 overflow-hidden flex-shrink-0">
+                                <div key={s.id} className="dashboard-row dashboard-card rounded-[1.5rem] p-5 flex flex-col gap-6 min-w-0">
+                                    <div className="flex items-center gap-4 min-w-0">
+                                        <div className="w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center font-black text-xl text-slate-600 overflow-hidden flex-shrink-0">
                                             {hideServerName ? <Icons.Server className="w-5 h-5" /> : (iconImg ? <img src={getProxyImgSrc(iconImg)} className="w-full h-full object-contain p-1.5" onError={(e) => {e.target.style.display='none'}} /> : s.name[0])}
                                         </div>
-                                        <div className="z-10 min-w-0 flex-1">
+                                        <div className="min-w-0">
                                             <div className="font-black text-slate-800 text-lg truncate tracking-tight">{hideServerName ? 'Node Hidden' : s.name}</div>
-                                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-bold">
-                                                <span className={"inline-flex items-center gap-1 px-2.5 py-1 rounded-full border bg-white/65 backdrop-blur-sm " + (s.status === 'online' ? 'border-emerald-200 text-emerald-700' : s.status === 'offline' ? 'border-rose-200 text-rose-700' : 'border-blue-200 text-blue-700')}>
-                                                    <span className={"w-2 h-2 rounded-full flex-shrink-0 " + (s.status === 'online' ? 'dot-online' : s.status === 'offline' ? 'dot-offline' : 'dot-updating')}></span>
-                                                    {s.status === 'online' ? '运行中' : s.status === 'offline' ? '已掉线' : '测速中'}
-                                                </span>
-                                                <span className="px-2.5 py-1 rounded-full bg-white/55 border border-white text-slate-500">
-                                                    {stats.uptime}% 可用率
-                                                </span>
-                                                <span className="px-2.5 py-1 rounded-full bg-white/55 border border-white text-slate-500">
-                                                    {stats.offline} 次离线
-                                                </span>
+                                            <div className={"mt-1 inline-flex items-center gap-1.5 text-[11px] font-black " + statusTone}>
+                                                <span className={"w-2 h-2 rounded-full flex-shrink-0 " + statusDot}></span>
+                                                {statusText}
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="status-chart-shell w-full min-w-0 min-h-[5.25rem] rounded-[1.2rem] px-3 py-2 overflow-visible">
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="rounded-2xl bg-white/45 border border-white/70 px-4 py-3 flex flex-col items-center justify-center text-center">
+                                            <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest">24H 可用率</div>
+                                            <div className={"mt-2 text-3xl font-black tracking-tight tabular-nums " + uptimeTone}>{stats.uptime === '---' ? '--' : stats.uptime + '%'}</div>
+                                        </div>
+                                        <div className="rounded-2xl bg-white/45 border border-white/70 px-4 py-3 flex flex-col items-center justify-center text-center">
+                                            <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest">离线次数</div>
+                                            <div className={"mt-2 text-3xl font-black tracking-tight tabular-nums " + (offlineSlices > 0 ? 'text-rose-600' : 'text-slate-900')}>{offlineSlices}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-auto min-w-0 overflow-visible">
+                                        <div className="mb-2 flex justify-between text-[10px] text-slate-400 font-black uppercase tracking-widest">
+                                            <span>PAST</span>
+                                            <span>NOW</span>
+                                        </div>
                                         <StatusBars history={s.history || []} currentStatus={s.status} currentLatency={s.latency} />
                                     </div>
                                 </div>

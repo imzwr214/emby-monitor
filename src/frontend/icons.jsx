@@ -25,6 +25,7 @@ const Icons = {
     TrendingUp: (p) => <Icon {...p} path='<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline>' />,
     CheckCircle2: (p) => <Icon {...p} path='<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>' />,
     XCircle: (p) => <Icon {...p} path='<circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>' />,
+    ChevronDown: (p) => <Icon {...p} path='<polyline points="6 9 12 15 18 9"></polyline>' />,
     Clock: (p) => <Icon {...p} path='<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>' />,
     ClockOff: (p) => <Icon {...p} path='<path d="M21 12a9 9 0 0 0-9-9 8.8 8.8 0 0 0-4 1"></path><path d="M3 3l18 18"></path><path d="M3.6 8A9 9 0 0 0 12 21a8.8 8.8 0 0 0 4-1"></path><path d="M12 7v5l2 2"></path>' />,
     Cloud: (p) => <Icon {...p} path='<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>' />,

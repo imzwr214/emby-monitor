@@ -245,7 +245,8 @@
           const previousOfflineSince = Number.isFinite(Number(server.offlineSince)) ? Number(server.offlineSince) : 0;
           const previousAlertSentAt = Number.isFinite(Number(server.offlineAlertSentAt)) ? Number(server.offlineAlertSentAt) : 0;
           const shouldPreserveOfflineState = previousStatus === 'offline' || (previousStatus !== 'online' && previousOfflineSince > 0);
-          server.offlineSince = shouldPreserveOfflineState && previousOfflineSince > 0 ? previousOfflineSince : checkedAt;
+          const firstFailureAt = Number.isFinite(Number(server.firstFailureAt)) ? Math.max(0, Number(server.firstFailureAt)) : 0;
+          server.offlineSince = shouldPreserveOfflineState && previousOfflineSince > 0 ? previousOfflineSince : (firstFailureAt || checkedAt);
           server.offlineAlertSentAt = shouldPreserveOfflineState ? Math.max(0, previousAlertSentAt) : 0;
           return server;
       }
