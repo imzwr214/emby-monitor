@@ -167,11 +167,12 @@
           } : null,
           keepAlive: normalizeKeepAlive(mediaStats.keepAlive)
       };
-      if (!clean.dailyDelta && clean.counts && clean.previousCounts) {
-          clean.dailyDelta = { movie: clean.counts.movie - clean.previousCounts.movie, series: clean.counts.series - clean.previousCounts.series, episode: clean.counts.episode - clean.previousCounts.episode, time: clean.counts.time };
-      }
+      const hasStoredDailySnapshots = Boolean(clean.todayCounts || clean.yesterdayCounts);
       if (!clean.todayCounts && clean.counts) clean.todayCounts = clean.counts;
-      if (!clean.yesterdayCounts && clean.previousCounts) clean.yesterdayCounts = clean.previousCounts;
+      if (!clean.yesterdayCounts && !hasStoredDailySnapshots && clean.previousCounts) clean.yesterdayCounts = clean.previousCounts;
+      if (!clean.dailyDelta && clean.counts && clean.yesterdayCounts) {
+          clean.dailyDelta = { movie: clean.counts.movie - clean.yesterdayCounts.movie, series: clean.counts.series - clean.yesterdayCounts.series, episode: clean.counts.episode - clean.yesterdayCounts.episode, time: clean.counts.time };
+      }
       if (!clean.dailyKey && clean.counts && clean.counts.time) clean.dailyKey = this.getShanghaiDayKey(clean.counts.time);
       return clean;
   },

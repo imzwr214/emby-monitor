@@ -9,26 +9,19 @@
       return new Date(shanghaiTime).toISOString().slice(0, 10);
   },
 
-  isShanghaiMidnightWindow(time = Date.now()) {
-      const shanghai = new Date(time + (8 * 60 * 60 * 1000));
-      return shanghai.getUTCHours() === 0;
-  },
-
   buildDailyMediaStats(media, counts, now = Date.now()) {
       const todayKey = this.getShanghaiDayKey(now);
       const yesterdayKey = this.getShanghaiDayKey(now, -1);
       const countsWithTime = { ...counts, time: counts.time || now };
       let todayCounts = media.todayCounts || null;
-      let yesterdayCounts = media.yesterdayCounts || null;
+      let yesterdayCounts = media.yesterdayCounts || (!todayCounts ? (media.previousCounts || null) : null);
 
       if (media.dailyKey && media.dailyKey !== todayKey) {
-          if (media.dailyKey === yesterdayKey && todayCounts) { yesterdayCounts = todayCounts; } else if (!yesterdayCounts && media.counts) { yesterdayCounts = media.counts; }
+          yesterdayCounts = media.dailyKey === yesterdayKey && todayCounts ? todayCounts : null;
           todayCounts = countsWithTime;
       } else if (!todayCounts) { todayCounts = countsWithTime; }
 
-      if (this.isShanghaiMidnightWindow(now)) { todayCounts = countsWithTime; }
-
-      const baseline = yesterdayCounts || media.previousCounts || null;
+      const baseline = yesterdayCounts || null;
       const dailyDelta = baseline ? { movie: countsWithTime.movie - baseline.movie, series: countsWithTime.series - baseline.series, episode: countsWithTime.episode - baseline.episode, time: countsWithTime.time } : { movie: 0, series: 0, episode: 0, time: countsWithTime.time };
 
       return { todayCounts, yesterdayCounts, dailyDelta, dailyKey: todayKey };
@@ -133,14 +126,13 @@
           await logMedia('skip.disabled');
           return server;
       }
-      if (!force) {
-          await logMedia('skip.notForced');
-          return server;
-      }
       const now = Date.now();
       const todayKey = this.getShanghaiDayKey(now);
       const needsDailySnapshot = media.dailyKey !== todayKey || !media.todayCounts || !media.dailyDelta;
-      if (!force && media.lastCheck && !needsDailySnapshot) return server;
+      if (!force && !needsDailySnapshot) {
+          await logMedia('skip.upToDate', { dailyKey: media.dailyKey || '', todayKey });
+          return server;
+      }
       server.mediaStatsTouched = true;
       const limited = Boolean(options.limited);
       const limitedApiOptions = limited ? { maxBases: 1, maxProfiles: 1, maxAttempts: 1, timeoutMs: 2000 } : {};
@@ -179,7 +171,7 @@
               await logMedia('retry.counts.request.done', { clientProfile, counts: { movie: counts.movie, series: counts.series, episode: counts.episode } });
           }
           const dailyStats = this.buildDailyMediaStats(media, counts, now);
-          const previous = dailyStats.yesterdayCounts || media.previousCounts || media.counts || null;
+          const previous = dailyStats.yesterdayCounts || media.previousCounts || null;
           server.mediaStats = {
               ...media, accessToken: token, userId, clientProfile, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
