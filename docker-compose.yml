@@ -1,5 +1,6 @@
 services:
   emby-monitor:
+    image: ghcr.io/pototazhang/emby-js:latest
     build: .
     container_name: emby-monitor
     restart: unless-stopped
@@ -13,5 +14,8 @@ services:
       SCHEDULE_ENABLED: "1"
       SCHEDULE_CRON: "*/1 * * * *"
       RUN_SCHEDULE_ON_START: "0"
+      DOCKER_SELF_UPDATE_ENABLED: "1"
+      DOCKER_UPDATE_IMAGE: "ghcr.io/pototazhang/emby-js:latest"
     volumes:
       - ./docker-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock

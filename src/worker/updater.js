@@ -29,6 +29,32 @@
 
   canSelfUpdate(env) { return this.getMissingUpdateEnv(env).length === 0; },
 
+  isDockerRuntime(env) {
+      return Boolean(env && env.DOCKER_SELF_UPDATER && typeof env.DOCKER_SELF_UPDATER.getCapability === 'function');
+  },
+
+  async getRuntimeUpdateCapability(env) {
+      if (this.isDockerRuntime(env)) {
+          const capability = await env.DOCKER_SELF_UPDATER.getCapability();
+          return {
+              mode: 'docker',
+              targetLabel: 'Docker 容器',
+              canUpdate: Boolean(capability && capability.canUpdate),
+              missing: Array.isArray(capability && capability.missing) ? capability.missing : [],
+              busy: Boolean(capability && capability.busy),
+              image: capability && capability.image ? String(capability.image) : ''
+          };
+      }
+      return {
+          mode: 'worker',
+          targetLabel: 'Cloudflare Worker',
+          canUpdate: this.canSelfUpdate(env),
+          missing: this.getMissingUpdateEnv(env),
+          busy: false,
+          image: ''
+      };
+  },
+
   UPDATE_CHECK_KV_KEY: 'last_update_check',
   UPDATE_CHECK_INTERVAL_MS: 12 * 60 * 60 * 1000,
 

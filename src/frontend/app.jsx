@@ -964,17 +964,32 @@ const App = () => {
 
     const applyUpdate = async () => {
         if (!updateInfo || !updateInfo.hasUpdate) return showNotice('当前没有可更新版本');
-        if (!updateInfo.canUpdate) return showAlert('当前 Worker 没有配置自更新环境变量，请按 README 配置 CF_ACCOUNT_ID、CF_WORKER_NAME、CF_API_TOKEN 和 UPDATE_ENABLED', { title: '无法自更新' });
-        if (!await showConfirm('确认更新到 ' + updateInfo.latestVersion + '？更新会覆盖当前 Worker 代码，但不会清空 KV 配置。', { title: '确认更新', confirmText: '更新' })) return;
+        if (!updateInfo.canUpdate) {
+            if (updateInfo.updateMode === 'docker') {
+                return showAlert('当前 Docker 部署没有开启容器自更新。请确认已挂载 /var/run/docker.sock，并配置 DOCKER_SELF_UPDATE_ENABLED 与 DOCKER_UPDATE_IMAGE。', { title: '无法自更新' });
+            }
+            return showAlert('当前 Worker 没有配置自更新环境变量，请按 README 配置 CF_ACCOUNT_ID、CF_WORKER_NAME、CF_API_TOKEN 和 UPDATE_ENABLED', { title: '无法自更新' });
+        }
+        const confirmMessage = updateInfo.updateMode === 'docker'
+            ? ('确认更新到 ' + updateInfo.latestVersion + '？程序会拉取新镜像并自动重建当前容器，页面会短暂断开，但 /data 中的数据不会丢失。')
+            : ('确认更新到 ' + updateInfo.latestVersion + '？更新会覆盖当前 Worker 代码，但不会清空 KV 配置。');
+        if (!await showConfirm(confirmMessage, { title: '确认更新', confirmText: '更新' })) return;
         setIsApplyingUpdate(true);
         try {
             const r = await apiFetch('/api/update/apply', { method: 'POST' });
             const data = await r.json().catch(() => ({}));
             if (!r.ok || !data.ok) throw new Error(data.error || '更新失败');
             const notes = Array.isArray(data.releaseNotes) && data.releaseNotes.length ? '\n\n更新内容：\n' + data.releaseNotes.map(note => '- ' + note).join('\n') : '';
-            await showAlert('更新完成，页面即将刷新' + notes, { title: '更新完成' });
-            setTimeout(() => location.reload(), 1200);
-        } catch(e) { showNotice('更新失败：' + (e.message || 'Cloudflare API 调用异常')); } finally { setIsApplyingUpdate(false); }
+            if (data.updateMode === 'docker') {
+                await showAlert((data.alreadyRunning ? '已有更新任务正在执行。' : '更新任务已启动。') + ' 容器会在后台拉取新镜像并自动重启，页面将在稍后刷新。' + notes, { title: 'Docker 更新' });
+                setTimeout(() => location.reload(), Number(data.reloadDelayMs) || 12000);
+            } else {
+                await showAlert('更新完成，页面即将刷新' + notes, { title: '更新完成' });
+                setTimeout(() => location.reload(), 1200);
+            }
+        } catch(e) {
+            showNotice('更新失败：' + (e.message || (updateInfo && updateInfo.updateMode === 'docker' ? 'Docker API 调用异常' : 'Cloudflare API 调用异常')));
+        } finally { setIsApplyingUpdate(false); }
     };
 
     const fetchRuntimeLogs = async () => {
@@ -1871,10 +1886,16 @@ const App = () => {
                                             {updateInfo && updateInfo.hasUpdate && <span className="ml-3 inline-block text-amber-500">发现新版本: {updateInfo.latestVersion}</span>}
                                             {updateInfo && !updateInfo.hasUpdate && updateInfo.latestVersion && updateInfo.latestVersion !== 'unknown' && <span className="ml-3 inline-block text-emerald-600">远端版本: {updateInfo.latestVersion}</span>}
                                         </div>
+                                        {updateInfo && updateInfo.updateTargetLabel && (
+                                            <div className="mt-1 text-[11px] font-bold text-slate-400">
+                                                更新目标：{updateInfo.updateTargetLabel}
+                                                {updateInfo.updateMode === 'docker' && updateInfo.image && <span className="ml-2 inline-block truncate max-w-full align-bottom">镜像：{updateInfo.image}</span>}
+                                            </div>
+                                        )}
                                         {updateInfo && (updateInfo.error || (Array.isArray(updateInfo.missing) && updateInfo.missing.length > 0) || updateInfo.sourceUrl) && (
                                             <div className="mt-3 space-y-1 text-[11px] font-bold text-slate-500">
                                                 {updateInfo.error && <div className="text-rose-500">检查失败：{updateInfo.error}</div>}
-                                                {Array.isArray(updateInfo.missing) && updateInfo.missing.length > 0 && <div>缺少自更新配置：{updateInfo.missing.join(', ')}</div>}
+                                                {Array.isArray(updateInfo.missing) && updateInfo.missing.length > 0 && <div>{updateInfo.updateMode === 'docker' ? '缺少 Docker 自更新条件：' : '缺少自更新配置：'}{updateInfo.missing.join(', ')}</div>}
                                                 {updateInfo.sourceUrl && <div className="truncate">更新源：{updateInfo.sourceUrl}</div>}
                                             </div>
                                         )}

@@ -236,7 +236,10 @@ docker run -d \
   --name emby-monitor \
   -p 8787:8787 \
   -e ADMIN_TOKEN=你自己设置的后台密码 \
+  -e DOCKER_SELF_UPDATE_ENABLED=1 \
+  -e DOCKER_UPDATE_IMAGE=ghcr.io/pototazhang/emby-js:latest \
   -v $(pwd)/docker-data:/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   ghcr.io/pototazhang/emby-js:latest
 ```
 
@@ -295,5 +298,8 @@ npm run start:docker-local
 | `SCHEDULE_CRON` | `*/1 * * * *` | 目前支持 `* * * * *` 或 `*/N * * * *`。 |
 | `SCHEDULE_INTERVAL_MS` | 空 | 可选，直接指定毫秒间隔；设置后优先级高于 `SCHEDULE_CRON`。 |
 | `RUN_SCHEDULE_ON_START` | `0` | 是否容器启动后立即跑一次定时探测。 |
+| `DOCKER_SELF_UPDATE_ENABLED` | `1` | 是否启用 Docker 版一键更新。 |
+| `DOCKER_UPDATE_IMAGE` | `ghcr.io/pototazhang/emby-js:latest` | 一键更新时拉取的目标镜像。 |
+| `DOCKER_SOCKET_PATH` | `/var/run/docker.sock` | Docker Engine socket 路径。 |
 
-其他业务环境变量如 `TG_BOT_TOKEN`、`TG_CHAT_ID` 仍可继续使用。纯 Docker 部署时通常不需要配置 `CF_ACCOUNT_ID`、`CF_WORKER_NAME`、`CF_API_TOKEN` 这类 Cloudflare Worker 专用变量。
+其他业务环境变量如 `TG_BOT_TOKEN`、`TG_CHAT_ID` 仍可继续使用。纯 Docker 部署时通常不需要配置 `CF_ACCOUNT_ID`、`CF_WORKER_NAME`、`CF_API_TOKEN` 这类 Cloudflare Worker 专用变量。如果你要使用页面内的一键更新，必须额外挂载 `/var/run/docker.sock`，并保持 `DOCKER_UPDATE_IMAGE` 指向一个可拉取的新镜像。

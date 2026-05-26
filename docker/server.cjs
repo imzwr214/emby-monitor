@@ -3,6 +3,7 @@ const path = require('path');
 const http = require('http');
 const { webcrypto } = require('crypto');
 const { FileKVNamespace } = require('./file-kv.cjs');
+const { DockerSelfUpdater } = require('./self-update.cjs');
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
@@ -22,6 +23,13 @@ function loadWorker() {
 function createEnv() {
   const env = { ...process.env };
   env.EMBY_DB = new FileKVNamespace(KV_PATH);
+  env.RUNTIME_ENV = 'docker';
+  env.DOCKER_SELF_UPDATER = new DockerSelfUpdater({
+    enabled: process.env.DOCKER_SELF_UPDATE_ENABLED === undefined ? '1' : process.env.DOCKER_SELF_UPDATE_ENABLED,
+    image: process.env.DOCKER_UPDATE_IMAGE || 'ghcr.io/pototazhang/emby-js:latest',
+    containerId: process.env.DOCKER_CONTAINER_ID || process.env.HOSTNAME || '',
+    socketPath: process.env.DOCKER_SOCKET_PATH || '/var/run/docker.sock'
+  });
   return env;
 }
 
