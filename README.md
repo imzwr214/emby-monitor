@@ -217,18 +217,71 @@ crons = ["*/1 * * * *"]
 - 容器内通过 `docker/server.cjs` 适配 Worker `fetch()` 和 `scheduled()`。
 - KV 数据默认持久化到宿主机 `./docker-data/kv.json`。
 - 定时任务由容器内调度器执行，不再受 Cloudflare 免费版 `10ms CPU` 限制。
+- 可以直接首次部署在 Docker 上，不依赖 Cloudflare Workers。
 
-### 快速启动
+### 部署方式 1：直接拉取镜像运行
 
-1. 先把根目录 `emby.js` 保持为最新：`npm run build`
+这是第一次使用时最省事的方式，不需要拉源码，也不需要本地构建镜像。
+
+1. 拉取现成镜像：
+
+```bash
+docker pull ghcr.io/pototazhang/emby-js:latest
+```
+
+2. 直接运行：
+
+```bash
+docker run -d \
+  --name emby-monitor \
+  -p 8787:8787 \
+  -e ADMIN_TOKEN=你自己设置的后台密码 \
+  -v $(pwd)/docker-data:/data \
+  ghcr.io/pototazhang/emby-js:latest
+```
+
+3. 打开：
+
+```text
+http://<你的主机IP>:8787
+```
+
+### 部署方式 2：拉源码后用 Compose 部署
+
+适合想查看源码、改配置、或者自己重新构建镜像的用户。
+
+1. 拉取仓库：
+
+```bash
+git clone https://github.com/pototazhang/emby-js.git
+cd emby-js
+```
+
 2. 修改 [docker-compose.yml](/Users/kunkun/emby-js/docker-compose.yml:1) 里的 `ADMIN_TOKEN`
+
 3. 启动：
 
 ```bash
 docker compose up -d --build
 ```
 
-4. 打开 `http://<你的主机IP>:8787`
+4. 打开：
+
+```text
+http://<你的主机IP>:8787
+```
+
+### 本机直接运行 Node 版
+
+如果你想先不进 Docker，直接在本机验证这套运行时：
+
+```bash
+npm install
+npm run build
+npm run start:docker-local
+```
+
+默认也会把数据写到 `./docker-data/kv.json`。
 
 ### 环境变量
 
@@ -243,25 +296,4 @@ docker compose up -d --build
 | `SCHEDULE_INTERVAL_MS` | 空 | 可选，直接指定毫秒间隔；设置后优先级高于 `SCHEDULE_CRON`。 |
 | `RUN_SCHEDULE_ON_START` | `0` | 是否容器启动后立即跑一次定时探测。 |
 
-其他业务环境变量如 `TG_BOT_TOKEN`、`TG_CHAT_ID`、`UPDATE_ENABLED` 仍可继续使用。
-
-### 容器外本地运行
-
-如果你想先不进 Docker，直接在本机验证这套运行时：
-
-```bash
-npm run start:docker-local
-```
-
-默认也会把数据写到 `./docker-data/kv.json`。
-
-## GitHub Actions
-
-仓库现在包含一套 GitHub Actions Docker 工作流：[.github/workflows/docker-image.yml](/Users/kunkun/emby-js/.github/workflows/docker-image.yml:1)。
-
-- `pull_request`：执行 `npm run check`，并验证 Docker 镜像可构建，但不会推送镜像。
-- `push main`：执行校验后，自动构建并推送多架构镜像到 `ghcr.io/pototazhang/emby-js`。
-- `push tag`：同样会推送带 tag 的镜像。
-- `workflow_dispatch`：支持手动触发。
-
-默认发布目标是 GitHub Container Registry，通常不需要额外 secrets，直接使用内置 `GITHUB_TOKEN` 即可；前提是仓库 Packages 权限没有被显式关闭。
+其他业务环境变量如 `TG_BOT_TOKEN`、`TG_CHAT_ID` 仍可继续使用。纯 Docker 部署时通常不需要配置 `CF_ACCOUNT_ID`、`CF_WORKER_NAME`、`CF_API_TOKEN` 这类 Cloudflare Worker 专用变量。
