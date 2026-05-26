@@ -449,6 +449,10 @@
               if (!statusUpdated.hasMore) break;
               if (Date.now() - scheduledStartedAt >= scheduledWallLimitMs) break;
           }
+          if (env && env.RUNTIME_ENV === 'docker') {
+              const mediaUpdated = await this.refreshAllLastPlayedIfRequested(statusUpdated, { source: 'scheduled', env });
+              statusUpdated = await this.saveConfig(env, mediaUpdated, { skipHistoryNormalization: true });
+          }
           return statusUpdated;
       })().catch((e) => this.appendRuntimeLog(env, 'error', 'probe.scheduled.error', '定时探测失败', { error: e.message || String(e) })));
   },

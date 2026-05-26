@@ -278,6 +278,7 @@
       const now = Date.now();
       const source = options.source === 'manual' ? 'manual' : 'scheduled';
       const todayKey = this.getShanghaiDayKey(now);
+      const isDockerScheduled = source === 'scheduled' && Boolean(options.env && options.env.RUNTIME_ENV === 'docker');
       const shouldRunManual = source === 'manual' && Boolean(options.refreshLastPlayed);
       const targets = cleanConfig.servers.filter((server) => server.mediaStats && server.mediaStats.enabled);
       if (source === 'manual' && !shouldRunManual) return cleanConfig;
@@ -295,6 +296,7 @@
       let nextQueue = [];
       let nextQueueDayKey = cleanConfig.lastPlayedQueueDayKey || '';
       let nextDailyKey = cleanConfig.lastPlayedDailyKey || '';
+      const targetById = new Map(targets.map((server) => [String(server.id), server]));
 
       if (source === 'scheduled') {
           if (nextDailyKey === todayKey && (!Array.isArray(cleanConfig.lastPlayedQueue) || cleanConfig.lastPlayedQueue.length === 0)) {
@@ -315,9 +317,14 @@
               queue = this.shuffleList(Array.from(targetIds));
               nextQueueDayKey = todayKey;
           }
-          const nextServerId = String(queue[0] || '');
-          selectedTargets = targets.filter((server) => String(server.id) === nextServerId).slice(0, 1);
-          nextQueue = queue.slice(1);
+          if (isDockerScheduled) {
+              selectedTargets = queue.map((value) => targetById.get(String(value))).filter(Boolean);
+              nextQueue = [];
+          } else {
+              const nextServerId = String(queue[0] || '');
+              selectedTargets = targets.filter((server) => String(server.id) === nextServerId).slice(0, 1);
+              nextQueue = queue.slice(1);
+          }
           if (!selectedTargets.length) {
               return {
                   ...cleanConfig,
@@ -326,7 +333,7 @@
                   lastPlayedQueue: nextQueue
               };
           }
-          if (nextQueue.length === 0) nextDailyKey = todayKey;
+          if (!isDockerScheduled && nextQueue.length === 0) nextDailyKey = todayKey;
       } else {
           const rawCursor = Number(options.cursor) || 0;
           const cursor = rawCursor >= targets.length ? 0 : Math.max(0, rawCursor);
@@ -358,6 +365,18 @@
           }
       }
       const byId = new Map(results.filter(Boolean).map((server) => [String(server.id), server]));
+      if (isDockerScheduled) {
+          const unresolvedIds = selectedTargets
+              .map((server) => String(server.id))
+              .filter((serverId) => {
+                  const refreshed = byId.get(serverId);
+                  const media = refreshed && refreshed.mediaStats ? refreshed.mediaStats : null;
+                  return !media || media.dailyKey !== todayKey;
+              });
+          nextQueue = unresolvedIds;
+          nextQueueDayKey = todayKey;
+          nextDailyKey = unresolvedIds.length === 0 ? todayKey : '';
+      }
       return {
           ...cleanConfig,
           ...transient,
