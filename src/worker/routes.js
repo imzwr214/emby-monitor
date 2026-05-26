@@ -170,6 +170,61 @@
       return this.json({ ok: true, logging: nextConfig.logging || { enabled: false }, updatedAt: nextConfig.updatedAt, revision: nextConfig.revision });
     }
 
+    if (url.pathname === '/api/data/export' && request.method === 'GET') {
+      const auth = this.requireStrictAdmin(request, env);
+      if (auth) return auth;
+
+      const snapshot = await this.exportKvSnapshot(env);
+      const fileName = 'emby-kv-snapshot-' + new Date(snapshot.exportedAt || Date.now()).toISOString().replace(/[:]/g, '-').replace(/\.\d{3}Z$/, 'Z') + '.json';
+      await this.appendRuntimeLog(env, 'info', 'data.export', '导出迁移数据快照', {
+          entryCount: Array.isArray(snapshot.entries) ? snapshot.entries.length : 0,
+          appVersion: snapshot.appVersion || ''
+      }, { force: true });
+      return new Response(JSON.stringify(snapshot, null, 2), {
+          headers: {
+              'Content-Type': 'application/json;charset=utf-8',
+              'Cache-Control': 'no-store',
+              'Content-Disposition': 'attachment; filename="' + fileName + '"'
+          }
+      });
+    }
+
+    if (url.pathname === '/api/data/import' && request.method === 'POST') {
+      const auth = this.requireStrictAdmin(request, env);
+      if (auth) return auth;
+
+      try {
+          const body = await request.json().catch(() => ({}));
+          const snapshot = body && body.snapshot ? body.snapshot : body;
+          const result = await this.importKvSnapshot(env, snapshot, { replace: body.replace !== false });
+          if (!result.ok) return this.json(result, 400);
+          const config = await this.loadConfig(env);
+          await this.appendRuntimeLog(env, 'info', 'data.import', '导入迁移数据快照', {
+              imported: result.imported || 0,
+              skipped: result.skipped || 0,
+              total: result.total || 0,
+              replaced: Boolean(result.replaced)
+          }, { force: true, config });
+          return this.json({
+              ok: true,
+              imported: result.imported || 0,
+              skipped: result.skipped || 0,
+              total: result.total || 0,
+              replaced: Boolean(result.replaced),
+              config: {
+                  updatedAt: config.updatedAt || 0,
+                  revision: config.revision || '',
+                  notifyEnabled: this.isTelegramEnabled(env, config),
+                  telegram: this.getTelegramConfig(env, config),
+                  logging: config.logging || { enabled: false }
+              }
+          });
+      } catch (e) {
+          await this.appendRuntimeLog(env, 'error', 'data.import.error', '导入迁移数据快照失败', { error: e && e.message ? e.message : String(e || 'Import failed') }, { force: true }).catch(() => {});
+          return this.json({ ok: false, error: e && e.message ? e.message : 'Import failed' }, 400);
+      }
+    }
+
     if (url.pathname === '/api/telegram/test' && request.method === 'POST') {
       const auth = this.requireAdmin(request, env);
       if (auth) return auth;
@@ -343,11 +398,21 @@
   },
 
   async scheduled(event, env, ctx) {
+      ctx.waitUntil(this.maybeRunScheduledSelfUpdate(env).catch((e) => {
+          console.log('[scheduled] auto update failed:', e && e.message ? e.message : String(e));
+      }));
       ctx.waitUntil((async () => {
-          const config = await this.loadConfig(env);
-          const withDailyLastPlayed = await this.refreshAllLastPlayedIfRequested(config, { source: 'scheduled' });
-          const shouldSaveLastPlayed = withDailyLastPlayed.lastPlayedDailyKey !== (config.lastPlayedDailyKey || '') || Number(withDailyLastPlayed.updatedAt || 0) !== Number(config.updatedAt || 0);
-          const savedForProbe = shouldSaveLastPlayed ? await this.saveConfig(env, withDailyLastPlayed) : withDailyLastPlayed;
-          return this.runProbeLogic(env, savedForProbe, { source: 'scheduled' });
+          await this.compactOversizedHistoriesIfNeeded(env);
+          const config = await this.loadConfig(env, { skipHistoryNormalization: true });
+          const scheduledStartedAt = Date.now();
+          const scheduledWallLimitMs = 45 * 1000;
+          const scheduledMaxBatches = 32;
+          let statusUpdated = config;
+          for (let batchIndex = 0; batchIndex < scheduledMaxBatches; batchIndex += 1) {
+              statusUpdated = await this.runProbeLogic(env, statusUpdated, { source: 'scheduled', statusOnly: true });
+              if (!statusUpdated.hasMore) break;
+              if (Date.now() - scheduledStartedAt >= scheduledWallLimitMs) break;
+          }
+          return statusUpdated;
       })().catch((e) => this.appendRuntimeLog(env, 'error', 'probe.scheduled.error', '定时探测失败', { error: e.message || String(e) })));
   },

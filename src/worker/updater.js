@@ -29,6 +29,61 @@
 
   canSelfUpdate(env) { return this.getMissingUpdateEnv(env).length === 0; },
 
+  UPDATE_CHECK_KV_KEY: 'last_update_check',
+  UPDATE_CHECK_INTERVAL_MS: 12 * 60 * 60 * 1000,
+
+  parseUpdateCheckTimestamp(value) {
+      const timestamp = Number(value);
+      return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+  },
+
+  async maybeRunScheduledSelfUpdate(env) {
+      if (!env || !env.EMBY_DB || !this.canSelfUpdate(env)) return { skipped: true, reason: 'disabled' };
+
+      const checkedAt = Date.now();
+      let lastCheckedAt = 0;
+      try {
+          lastCheckedAt = this.parseUpdateCheckTimestamp(await env.EMBY_DB.get(this.UPDATE_CHECK_KV_KEY));
+      } catch (e) {
+          console.log('[updater] last_update_check read failed:', e && e.message ? e.message : String(e));
+          return { skipped: true, reason: 'kv-read-failed' };
+      }
+
+      if (lastCheckedAt && checkedAt - lastCheckedAt < this.UPDATE_CHECK_INTERVAL_MS) {
+          return { skipped: true, reason: 'throttled', lastCheckedAt, nextCheckAt: lastCheckedAt + this.UPDATE_CHECK_INTERVAL_MS };
+      }
+
+      try {
+          const latestSource = await this.fetchLatestWorkerSource(env);
+          const latestVersion = this.extractAppVersion(latestSource) || 'unknown';
+          const updated = latestVersion !== 'unknown' && latestVersion !== this.APP_VERSION;
+          if (updated) await this.deployWorkerSource(env, latestSource);
+          try {
+              const logConfig = await this.loadConfig(env);
+              await this.appendRuntimeLog(env, 'info', updated ? 'update.auto.deploy.done' : 'update.auto.check.done', updated ? '定时自动更新部署完成' : '定时自动更新检查完成', {
+                  currentVersion: this.APP_VERSION,
+                  latestVersion,
+                  updated
+              }, { config: logConfig });
+          } catch (logError) {}
+          return { skipped: false, checkedAt, latestVersion, updated };
+      } catch (e) {
+          const message = e && e.message ? e.message : String(e || 'Auto update failed');
+          console.log('[updater] scheduled self update failed:', message);
+          try {
+              const logConfig = await this.loadConfig(env);
+              await this.appendRuntimeLog(env, 'error', 'update.auto.error', '定时自动更新失败', { error: message }, { config: logConfig });
+          } catch (logError) {}
+          return { skipped: false, checkedAt, error: message };
+      } finally {
+          try {
+              await env.EMBY_DB.put(this.UPDATE_CHECK_KV_KEY, String(checkedAt));
+          } catch (e) {
+              console.log('[updater] last_update_check write failed:', e && e.message ? e.message : String(e));
+          }
+      }
+  },
+
   async fetchLatestWorkerSource(env) {
       const sourceUrl = this.getUpdateRawUrl(env) + '?t=' + Date.now();
       const response = await fetch(sourceUrl, {

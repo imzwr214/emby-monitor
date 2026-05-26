@@ -132,19 +132,15 @@ Cloudflare API Token 建议只授予最小权限：
 
 在 Worker 的 **Settings** -> **Triggers** 中添加 Cron Trigger。
 
-默认每 5 分钟执行一次：
+推荐配置一个 Cron Trigger：
 
 ```toml
-crons = ["*/5 * * * *"]
+crons = ["*/1 * * * *"]
 ```
 
-如果要改成每分钟一次，可以填：
+- `*/1 * * * *`：每分钟触发一次后台检测；定时任务只做在线状态探测，按单批 `4` 台执行，并会在同一轮 cron 内连续推进多批，直到全部跑完或接近本轮时间上限。
 
-```toml
-crons = ["* * * * *"]
-```
-
-控制台里只需要填写 Cron 表达式本身，例如 `* * * * *` 或 `*/5 * * * *`，Cloudflare 会按这个表达式执行定时触发器。
+控制台里只需要填写 Cron 表达式本身，Cloudflare 会按这个表达式执行定时触发器。
 
 ### 绑定自定义域名
 
@@ -170,7 +166,8 @@ crons = ["* * * * *"]
 6. 在“库设置”里配置 Telegram 通知和第三方图标库。
 7. 点击“公开页”可以生成只读公开大盘链接。
 8. 点击单个服务器的“分享”可以生成该服务器卡片的 SVG 快照链接。
-9. 如果配置了页面一键更新，也可以在“库设置”里检查新版本并更新。
+9. “库设置”里的“数据迁移”支持导出/导入完整 KV 快照，方便在 Worker 版和 Docker 版之间迁移。
+10. 如果配置了页面一键更新，也可以在“库设置”里检查新版本并更新。
 
 ## 通知策略
 
@@ -185,7 +182,7 @@ crons = ["* * * * *"]
 
 ## 媒体库统计
 
-启用媒体库资源统计后，Worker 会在每天 0 点后的第一次探测中拉取资源数量，并把当天快照和前一天快照做对比。若某台服务器前一天没有留下有效快照，当天的“较昨日”会显示为 `0`，直到重新建立连续两天的日快照为止。旧数据会尽量沿用已有计数字段做一次兼容迁移，不需要手动清空配置。
+启用媒体库资源统计后，Worker 会在手动刷新相关服务器时更新当天资源数量快照，并把当天快照和前一天快照做对比。若某台服务器前一天没有留下有效快照，当天的“较昨日”会显示为 `0`，直到重新建立连续两天的日快照为止。旧数据会尽量沿用已有计数字段做一次兼容迁移，不需要手动清空配置。
 
 ## 图标库
 
@@ -209,3 +206,62 @@ crons = ["* * * * *"]
 - 如果开启一键更新，必须设置 `ADMIN_TOKEN`，并妥善保管 `CF_API_TOKEN`。
 - 不要把 Telegram Bot Token、Emby 用户名和密码提交到仓库。
 - Worker 会拒绝访问内网地址、localhost 和常见私有网段，避免被用作内网探测代理。
+
+## Docker 部署
+
+仓库同时提供了一个 Docker 常驻版运行时。它不会再使用 Cloudflare Worker cron，而是在容器里直接运行同一份根目录 `emby.js`，并用本地文件模拟 `EMBY_DB`。
+
+### 特点
+
+- 业务逻辑仍然来自根目录 `emby.js`，不维护第二套探针代码。
+- 容器内通过 `docker/server.cjs` 适配 Worker `fetch()` 和 `scheduled()`。
+- KV 数据默认持久化到宿主机 `./docker-data/kv.json`。
+- 定时任务由容器内调度器执行，不再受 Cloudflare 免费版 `10ms CPU` 限制。
+
+### 快速启动
+
+1. 先把根目录 `emby.js` 保持为最新：`npm run build`
+2. 修改 [docker-compose.yml](/Users/kunkun/emby-js/docker-compose.yml:1) 里的 `ADMIN_TOKEN`
+3. 启动：
+
+```bash
+docker compose up -d --build
+```
+
+4. 打开 `http://<你的主机IP>:8787`
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `ADMIN_TOKEN` | 无 | 必填，后台管理鉴权。 |
+| `PORT` | `8787` | 容器监听端口。 |
+| `HOST` | `0.0.0.0` | 容器监听地址。 |
+| `DATA_DIR` | `/data` | KV 持久化目录。 |
+| `SCHEDULE_ENABLED` | `1` | 是否启用定时探测。 |
+| `SCHEDULE_CRON` | `*/1 * * * *` | 目前支持 `* * * * *` 或 `*/N * * * *`。 |
+| `SCHEDULE_INTERVAL_MS` | 空 | 可选，直接指定毫秒间隔；设置后优先级高于 `SCHEDULE_CRON`。 |
+| `RUN_SCHEDULE_ON_START` | `0` | 是否容器启动后立即跑一次定时探测。 |
+
+其他业务环境变量如 `TG_BOT_TOKEN`、`TG_CHAT_ID`、`UPDATE_ENABLED` 仍可继续使用。
+
+### 容器外本地运行
+
+如果你想先不进 Docker，直接在本机验证这套运行时：
+
+```bash
+npm run start:docker-local
+```
+
+默认也会把数据写到 `./docker-data/kv.json`。
+
+## GitHub Actions
+
+仓库现在包含一套 GitHub Actions Docker 工作流：[.github/workflows/docker-image.yml](/Users/kunkun/emby-js/.github/workflows/docker-image.yml:1)。
+
+- `pull_request`：执行 `npm run check`，并验证 Docker 镜像可构建，但不会推送镜像。
+- `push main`：执行校验后，自动构建并推送多架构镜像到 `ghcr.io/pototazhang/emby-js`。
+- `push tag`：同样会推送带 tag 的镜像。
+- `workflow_dispatch`：支持手动触发。
+
+默认发布目标是 GitHub Container Registry，通常不需要额外 secrets，直接使用内置 `GITHUB_TOKEN` 即可；前提是仓库 Packages 权限没有被显式关闭。

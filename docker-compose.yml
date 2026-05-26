@@ -1,0 +1,17 @@
+services:
+  emby-monitor:
+    build: .
+    container_name: emby-monitor
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      ADMIN_TOKEN: "change-me"
+      PORT: "8787"
+      HOST: "0.0.0.0"
+      DATA_DIR: "/data"
+      SCHEDULE_ENABLED: "1"
+      SCHEDULE_CRON: "*/1 * * * *"
+      RUN_SCHEDULE_ON_START: "0"
+    volumes:
+      - ./docker-data:/data

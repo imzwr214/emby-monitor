@@ -61,6 +61,8 @@ const App = () => {
     const [runtimeLogs, setRuntimeLogs] = useState([]);
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
     const [isSavingLogging, setIsSavingLogging] = useState(false);
+    const [isExportingData, setIsExportingData] = useState(false);
+    const [isImportingData, setIsImportingData] = useState(false);
     const [isTestingTelegram, setIsTestingTelegram] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('cards');
@@ -87,10 +89,12 @@ const App = () => {
     const [systemDialog, setSystemDialog] = useState(null);
     const privacyMenuRef = useRef(null);
     const keepAliveSectionRef = useRef(null);
+    const dataImportInputRef = useRef(null);
     const configRevisionRef = useRef('');
     const configUpdatedAtRef = useRef(0);
     const isRefreshingRef = useRef(false);
     const serversRef = useRef([]);
+    const stableServersRef = useRef(new Map());
     const dialogResolveRef = useRef(null);
 
     const closeSystemDialog = (value) => {
@@ -121,6 +125,18 @@ const App = () => {
     const showConfirm = (message, options = {}) => showSystemDialog({ ...options, type: 'confirm', message, confirmText: options.confirmText || '确认' });
     const showPrompt = (message, inputValue = '', options = {}) => showSystemDialog({ ...options, type: 'prompt', message, inputValue, confirmText: options.confirmText || '确认' });
 
+    const triggerFileDownload = (content, fileName, mimeType) => {
+        const blobUrl = URL.createObjectURL(new Blob([content], { type: mimeType }));
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Safari 对 blob: 下载接管较慢，立刻 revoke 会触发 WebKitBlobResource 错误。
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60 * 1000);
+    };
+
     // API 调用封装
     const apiFetch = async (path, options = {}) => {
         const headers = { ...(options.headers || {}) };
@@ -137,6 +153,16 @@ const App = () => {
         } finally {
             clearTimeout(timer);
         }
+    };
+
+    const getStableServerSnapshot = (serverId, fallback = null) => {
+        const key = String(serverId || '');
+        if (!key) return fallback;
+        const stable = stableServersRef.current.get(key);
+        if (stable) return stable;
+        if (!fallback) return null;
+        if (fallback.status && fallback.status !== 'updating') return fallback;
+        return { ...fallback, status: 'unknown', latency: 0 };
     };
 
     const fetchConfigData = async (options = {}) => {
@@ -214,7 +240,16 @@ const App = () => {
     };
 
     useEffect(() => { fetchConfigData().finally(() => setIsLoading(false)); }, []);
-    useEffect(() => { serversRef.current = servers; }, [servers]);
+    useEffect(() => {
+        serversRef.current = servers;
+        const nextStable = new Map(stableServersRef.current);
+        servers.forEach((server) => {
+            if (!server || server.id === undefined || server.id === null) return;
+            if (server.status === 'updating') return;
+            nextStable.set(String(server.id), server);
+        });
+        stableServersRef.current = nextStable;
+    }, [servers]);
     useEffect(() => {
         const timer = setInterval(() => {
             if (document.visibilityState === 'visible') {
@@ -321,7 +356,7 @@ const App = () => {
             let cursor = 0;
             let updatedData = null;
             const batchSize = 3;
-            const originalById = new Map(currentServers.map((server) => [String(server.id), server]));
+            const originalById = new Map(currentServers.map((server) => [String(server.id), getStableServerSnapshot(server.id, server) || server]));
             let skippedCount = 0;
             do {
                 const pendingIds = new Set(
@@ -341,7 +376,7 @@ const App = () => {
                     if (e && e.name === 'AbortError') skippedCount += pendingIds.size || 1;
                     setServers((current) => current.map((server) => {
                         if (!pendingIds.has(server.id)) return server;
-                        const previous = originalById.get(String(server.id)) || server;
+                        const previous = originalById.get(String(server.id)) || getStableServerSnapshot(server.id, server) || server;
                         return { ...server, status: previous.status || 'unknown', latency: previous.latency || 0 };
                     }));
                     updatedData = { hasMore: cursor + batchSize < currentServers.length, nextCursor: cursor + batchSize };
@@ -389,7 +424,7 @@ const App = () => {
 
     const pingSingleServer = async (serverId, forceMedia = false, refreshLastPlayed = false) => {
         if (!serverId) return;
-        const previousById = new Map(servers.map((server) => [String(server.id), server]));
+        const previousById = new Map(serversRef.current.map((server) => [String(server.id), getStableServerSnapshot(server.id, server) || server]));
         setServers((current) => current.map((server) => String(server.id) === String(serverId) ? { ...server, status: 'updating', latency: 0 } : server));
         try {
             const res = await apiFetch('/api/ping-single', {
@@ -423,7 +458,7 @@ const App = () => {
         } catch(e) {
             setServers((current) => current.map((server) => {
                 if (String(server.id) !== String(serverId)) return server;
-                return previousById.get(String(serverId)) || { ...server, status: 'unknown', latency: 0 };
+                return previousById.get(String(serverId)) || getStableServerSnapshot(serverId, server) || { ...server, status: 'unknown', latency: 0 };
             }));
             showNotice(e.message || '单体测速失败');
         }
@@ -431,7 +466,7 @@ const App = () => {
 
     const refreshSingleLastPlayed = async (serverId) => {
         if (!serverId || refreshingLastPlayedId) return;
-        const previousById = new Map(serversRef.current.map((server) => [String(server.id), server]));
+        const previousById = new Map(serversRef.current.map((server) => [String(server.id), getStableServerSnapshot(server.id, server) || server]));
         setRefreshingLastPlayedId(serverId);
         try {
             const res = await apiFetchWithTimeout('/api/ping-single', {
@@ -459,7 +494,7 @@ const App = () => {
         } catch(e) {
             setServers((current) => current.map((server) => {
                 if (String(server.id) !== String(serverId)) return server;
-                return previousById.get(String(serverId)) || server;
+                return previousById.get(String(serverId)) || getStableServerSnapshot(serverId, server) || server;
             }));
             showNotice(e.message || '上次播放刷新失败');
         } finally {
@@ -988,14 +1023,7 @@ const App = () => {
             const r = await apiFetch('/api/logs?format=text');
             if (!r.ok) throw new Error(await r.text() || '日志下载失败');
             const text = await r.text();
-            const blobUrl = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = 'emby-runtime-logs-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt';
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            URL.revokeObjectURL(blobUrl);
+            triggerFileDownload(text, 'emby-runtime-logs-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt', 'text/plain;charset=utf-8');
         } catch(e) {
             showNotice('日志下载失败：' + (e.message || '请稍后重试'));
         }
@@ -1013,6 +1041,67 @@ const App = () => {
             showNotice('日志清空失败：' + (e.message || '请稍后重试'));
         } finally {
             setIsLoadingLogs(false);
+        }
+    };
+
+    const exportDataSnapshot = async () => {
+        setIsExportingData(true);
+        try {
+            const r = await apiFetch('/api/data/export');
+            if (!r.ok) throw new Error(await r.text() || '导出失败');
+            const text = await r.text();
+            triggerFileDownload(text, 'emby-kv-snapshot-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json', 'application/json;charset=utf-8');
+            showNotice('迁移数据已导出');
+        } catch (e) {
+            showNotice('导出失败：' + (e.message || '请稍后重试'));
+        } finally {
+            setIsExportingData(false);
+        }
+    };
+
+    const triggerDataImport = async () => {
+        if (isImportingData) return;
+        if (!await showConfirm('导入会覆盖当前全部 KV 数据，包括节点配置、历史、运行日志和分享记录。建议先导出当前数据备份。', { title: '导入迁移数据', tone: 'danger', confirmText: '继续导入' })) return;
+        if (dataImportInputRef.current) {
+            dataImportInputRef.current.value = '';
+            dataImportInputRef.current.click();
+        }
+    };
+
+    const handleDataImportFile = async (event) => {
+        const file = event && event.target && event.target.files ? event.target.files[0] : null;
+        if (!file) return;
+        setIsImportingData(true);
+        try {
+            const text = await file.text();
+            const snapshot = JSON.parse(text);
+            const r = await apiFetch('/api/data/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ snapshot, replace: true })
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.ok) throw new Error(data.error || '导入失败');
+            if (data.config && data.config.revision) {
+                setConfigRevision(String(data.config.revision));
+                configRevisionRef.current = String(data.config.revision);
+            }
+            if (data.config && Number.isFinite(Number(data.config.updatedAt))) {
+                const nextUpdatedAt = Number(data.config.updatedAt) || 0;
+                setConfigUpdatedAt(nextUpdatedAt);
+                configUpdatedAtRef.current = nextUpdatedAt;
+            }
+            if (data.config && data.config.telegram) setTelegramForm(data.config.telegram);
+            if (data.config && data.config.logging) setLoggingEnabled(Boolean(data.config.logging.enabled));
+            if (data.config) setNotifyEnabled(Boolean(data.config.notifyEnabled));
+            await fetchConfigData({ allowEmptyServers: true, skipUpdateCheck: true });
+            await fetchRuntimeLogs();
+            showNotice('导入完成：' + (data.imported || 0) + ' 条，跳过 ' + (data.skipped || 0) + ' 条');
+        } catch (e) {
+            showNotice('导入失败：' + (e.message || '文件格式错误'));
+        } finally {
+            if (event && event.target) event.target.value = '';
+            setIsImportingData(false);
         }
     };
 
@@ -1723,7 +1812,7 @@ const App = () => {
                                             <span>PAST</span>
                                             <span>NOW</span>
                                         </div>
-                                        <StatusBars history={s.history || []} currentStatus={s.status} currentLatency={s.latency} />
+                                        <StatusBars history={s.history || []} currentStatus={s.status} />
                                     </div>
                                 </div>
                             );
@@ -1808,6 +1897,37 @@ const App = () => {
                                             {isApplyingUpdate ? '更新中...' : '一键更新'}
                                         </button>
                                     </div>
+                                </div>
+                                </div>
+
+                                {/* 数据迁移 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                            <Icons.Cloud className="w-4 h-4 text-sky-500" />数据迁移
+                                        </div>
+                                        <div className="mt-1 text-[11px] font-bold text-slate-500">
+                                            导出/导入完整 KV 快照，适用于 Worker 与 Docker 版之间迁移节点配置、历史、日志和分享记录。
+                                        </div>
+                                    </div>
+                                </div>
+                                <input
+                                    ref={dataImportInputRef}
+                                    type="file"
+                                    accept="application/json,.json"
+                                    onChange={handleDataImportFile}
+                                    className="hidden"
+                                />
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <button onClick={exportDataSnapshot} disabled={isExportingData} className="py-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-60 font-bold text-sm rounded-xl transition-colors border border-blue-200 flex items-center justify-center gap-2">
+                                        <Icons.DownloadCloud className="w-4 h-4" />
+                                        {isExportingData ? '导出中...' : '导出数据'}
+                                    </button>
+                                    <button onClick={triggerDataImport} disabled={isImportingData} className="py-2.5 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60 font-bold text-sm rounded-xl transition-colors border border-amber-200 flex items-center justify-center gap-2">
+                                        <Icons.UploadCloud className="w-4 h-4" />
+                                        {isImportingData ? '导入中...' : '导入数据'}
+                                    </button>
                                 </div>
                                 </div>
 

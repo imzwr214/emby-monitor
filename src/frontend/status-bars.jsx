@@ -3,7 +3,7 @@
  *
  * 专业 Uptime 时间分片状态柱：固定高度、等宽切片，绿色代表可用，红色代表离线。
  */
-const StatusBars = ({ history = [], currentStatus = 'unknown', currentLatency = 0 }) => {
+const StatusBars = ({ history = [], currentStatus = 'unknown' }) => {
     const maxBars = 60;
     const bucketMs = 60 * 1000;
     const [hoveredIndex, setHoveredIndex] = useState(null);
@@ -15,7 +15,6 @@ const StatusBars = ({ history = [], currentStatus = 'unknown', currentLatency = 
         const normalized = Array.from({ length: maxBars }, (_, index) => ({
             status: null,
             time: start + (index * bucketMs),
-            latency: 0,
             count: 0,
             filled: false
         }));
@@ -27,17 +26,15 @@ const StatusBars = ({ history = [], currentStatus = 'unknown', currentLatency = 
             .sort((a, b) => Number(a.time) - Number(b.time));
 
         let carryStatus = null;
-        let carryLatency = 0;
         sortedHistory.forEach((item) => {
             const time = Number(item.time);
             if (time < start) {
                 carryStatus = item.status === 'online' || item.status === 1 || item.value === 1 ? 'online' : 'offline';
-                carryLatency = Number.isFinite(Number(item.latency)) ? Math.max(0, Number(item.latency)) : 0;
             }
         });
 
         if (carryStatus) {
-            normalized[0] = { ...normalized[0], status: carryStatus, latency: carryLatency, filled: true };
+            normalized[0] = { ...normalized[0], status: carryStatus, filled: true };
         }
 
         sortedHistory.forEach((item) => {
@@ -49,7 +46,6 @@ const StatusBars = ({ history = [], currentStatus = 'unknown', currentLatency = 
             normalized[index] = {
                 status: previous.status === 'offline' || status === 'offline' ? 'offline' : status,
                 time,
-                latency: Number.isFinite(Number(item.latency)) ? Math.max(0, Number(item.latency)) : previous.latency,
                 count: (previous.count || 0) + 1,
                 filled: false
             };
@@ -60,7 +56,6 @@ const StatusBars = ({ history = [], currentStatus = 'unknown', currentLatency = 
             normalized[index] = {
                 ...normalized[index],
                 status: normalized[index - 1].status,
-                latency: normalized[index - 1].latency,
                 filled: true
             };
         }
@@ -70,13 +65,12 @@ const StatusBars = ({ history = [], currentStatus = 'unknown', currentLatency = 
                 ...normalized[maxBars - 1],
                 status: currentStatus,
                 time: now,
-                latency: Number.isFinite(Number(currentLatency)) ? Math.max(0, Number(currentLatency)) : 0,
                 filled: normalized[maxBars - 1].count === 0
             };
         }
 
         return normalized;
-    }, [history, currentStatus, currentLatency]);
+    }, [history, currentStatus]);
 
     const formatHistoryTime = (time) => {
         if (!time) return '暂无记录';

@@ -7,7 +7,8 @@
     "build": "node scripts/build.cjs",
     "verify": "node scripts/verify-build.cjs",
     "check": "npm run build && npm run verify",
-    "test": "npm run check"
+    "test": "npm run check",
+    "start:docker-local": "node docker/server.cjs"
   },
   "repository": {
     "type": "git",

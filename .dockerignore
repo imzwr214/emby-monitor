@@ -1,0 +1,6 @@
+.git
+.gitignore
+node_modules
+docker-data
+assets
+.local-preview

@@ -334,8 +334,30 @@
           nextQueue = cleanConfig.lastPlayedQueue || [];
       }
 
-      const results = await this.mapWithConcurrency(selectedTargets, 1, (server) => this.refreshServerLastPlayed(server, now, { limited: true }));
-      const byId = new Map(results.filter(Boolean).map((result) => [String(result.server.id), result.server]));
+      const requestId = 'daily-' + now.toString(36);
+      const telegramEnabled = this.isTelegramEnabled(options.env, cleanConfig);
+      const notifyQueue = [];
+      const results = await this.mapWithConcurrency(selectedTargets, 1, async (server) => {
+          let nextServer = await this.refreshMediaStatsIfNeeded(server, true, { limited: true, env: options.env, logConfig: cleanConfig, requestId, flow: 'scheduled-daily' });
+          const lastPlayedResult = await this.refreshServerLastPlayed(nextServer, now, { limited: true, env: options.env, logConfig: cleanConfig, requestId, flow: 'scheduled-daily' });
+          if (lastPlayedResult && lastPlayedResult.touched) nextServer = lastPlayedResult.server;
+          const keepAliveResult = await this.refreshKeepAliveIfNeeded(nextServer, now, { refreshLastPlayed: false, env: options.env, logConfig: cleanConfig, requestId, flow: 'scheduled-daily' });
+          if (keepAliveResult && keepAliveResult.touched) nextServer = keepAliveResult.server;
+          if (keepAliveResult && keepAliveResult.alert && telegramEnabled) notifyQueue.push({ ...keepAliveResult.alert, kind: 'keepAlive' });
+          return nextServer;
+      });
+      if (notifyQueue.length) {
+          const sendResults = await Promise.all(notifyQueue.map((item) => this.sendTelegram(options.env, item.message, cleanConfig)));
+          for (const [index, ok] of sendResults.entries()) {
+              const item = notifyQueue[index];
+              if (!ok || !item) continue;
+              const target = results.find((server) => server && String(server.id) === String(item.serverId));
+              if (target && target.mediaStats && target.mediaStats.keepAlive) {
+                  target.mediaStats = { ...target.mediaStats, keepAlive: { ...target.mediaStats.keepAlive, alertSentAt: item.checkedAt || Date.now() } };
+              }
+          }
+      }
+      const byId = new Map(results.filter(Boolean).map((server) => [String(server.id), server]));
       return {
           ...cleanConfig,
           ...transient,
@@ -450,7 +472,7 @@
   },
 
   async probeServerRuntimeState(env, server, forceMedia = false, options = {}) {
-      const cleanServers = this.sanitizeConfig({ servers: [server] }).servers;
+      const cleanServers = this.sanitizeConfig({ servers: [server] }, { skipHistoryNormalization: true }).servers;
       let s = cleanServers[0] || { ...server };
       const previousStatus = s.status;
       s.totalChecks = (s.totalChecks || 0) + 1;
@@ -458,6 +480,8 @@
       const checkedAt = Date.now();
 
       const limitedMedia = Boolean(options.limitedMedia);
+      const recordLatency = options.recordLatency !== false;
+      const skipMediaRefresh = Boolean(options.skipMediaRefresh);
       const probeTargets = limitedMedia ? this.getProbeTargets(s).slice(0, 1) : this.getProbeTargets(s);
       const needsMediaRefresh = Boolean(forceMedia);
 
@@ -466,10 +490,10 @@
           s.firstFailureAt = Number(s.firstFailureAt) || checkedAt;
           s.status = 'offline'; s.latency = 0; s.history.push({ status: 'offline', time: checkedAt, latency: 0 });
           s.addressProbeResults = [];
-          if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
+          if (s.history.length > this.HISTORY_LIMIT) s.history.splice(0, s.history.length - this.HISTORY_LIMIT);
           s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
           s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-          await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh, { limited: limitedMedia });
+          if (!skipMediaRefresh) await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh, { limited: limitedMedia });
           s.previousStatus = previousStatus; return s;
       }
 
@@ -486,6 +510,14 @@
           if (loginState && loginState.ok) {
               isAlive = true;
               finalLatency = Number(loginState.latency) || finalLatency;
+          }
+      }
+      if (!recordLatency) {
+          finalLatency = 0;
+          if (Array.isArray(addressProbeResults)) {
+              for (let index = 0; index < addressProbeResults.length; index += 1) {
+                  if (addressProbeResults[index]) addressProbeResults[index].latency = 0;
+              }
           }
       }
       s.addressProbeResults = addressProbeResults;
@@ -506,10 +538,10 @@
           }
       }
 
-      if (s.history.length > this.HISTORY_LIMIT) s.history.shift();
+      if (s.history.length > this.HISTORY_LIMIT) s.history.splice(0, s.history.length - this.HISTORY_LIMIT);
       s.uptime = s.totalChecks > 0 ? ((s.successfulChecks / s.totalChecks) * 100).toFixed(1) : "0.0";
       s.lastCheck = checkedAt; this.updateOfflineNotifyState(s, previousStatus, checkedAt);
-      await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh, { limited: limitedMedia, env, logConfig: options.logConfig, requestId: options.requestId, flow: options.flow });
+      if (!skipMediaRefresh) await this.refreshMediaStatsIfNeeded(s, needsMediaRefresh, { limited: limitedMedia, env, logConfig: options.logConfig, requestId: options.requestId, flow: options.flow });
       s.previousStatus = previousStatus; return s;
   },
 
@@ -664,30 +696,47 @@
       const probeStartedAt = Date.now();
       const forceMedia = Boolean(options.forceMedia);
       const probeSource = options.source === 'manual' ? 'manual' : 'scheduled';
+      const scheduledStatusOnly = probeSource === 'scheduled' && Boolean(options.statusOnly);
       const concurrencyLimit = Math.max(1, Number(this.PROBE_CONCURRENCY_LIMIT) || 4);
-      const batchSize = forceMedia || Boolean(options.refreshLastPlayed) ? 1 : 3;
+      const batchSize = scheduledStatusOnly ? 4 : (forceMedia || Boolean(options.refreshLastPlayed) ? 1 : 3);
       const totalServers = config.servers.length;
       const rawCursor = probeSource === 'scheduled'
           ? Number(config.nextScheduledCursor) || 0
           : Number(options.cursor) || 0;
       const cursor = totalServers > 0 ? (rawCursor >= totalServers ? 0 : Math.max(0, rawCursor)) : 0;
       const batchEnd = Math.min(totalServers, cursor + batchSize);
-      const batchIds = new Set(config.servers.slice(cursor, batchEnd).map((s) => s.id));
-      const probeTargets = config.servers.filter((s) => batchIds.has(s.id));
-      await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers, targetCount: probeTargets.length }, { config });
+      const probeTargets = config.servers.slice(cursor, batchEnd);
+      const batchIds = new Set();
+      for (let index = 0; index < probeTargets.length; index += 1) batchIds.add(probeTargets[index].id);
+      if (!scheduledStatusOnly) await this.appendRuntimeLog(env, 'info', 'probe.start', (probeSource === 'manual' ? '手动刷新开始' : '定时探测开始'), { source: probeSource, forceMedia, cursor, batchEnd, totalServers, targetCount: probeTargets.length }, { config });
 
       const probedServers = await this.mapWithConcurrency(probeTargets, concurrencyLimit, async (s) => {
-          return this.probeServerRuntimeState(env, s, forceMedia, { limitedMedia: Boolean(options.refreshLastPlayed), requestId: 'batch-' + probeStartedAt.toString(36), flow: probeSource, logConfig: config });
+          return this.probeServerRuntimeState(env, s, forceMedia, {
+              limitedMedia: Boolean(options.refreshLastPlayed),
+              requestId: 'batch-' + probeStartedAt.toString(36),
+              flow: probeSource,
+              logConfig: config,
+              recordLatency: !scheduledStatusOnly,
+              skipMediaRefresh: scheduledStatusOnly
+          });
       });
 
       const suppressProbeFailures = false; // 分批探测模式下禁用单批次大面积掉线防误报拦截
 
-      const probedById = new Map(probedServers.map((s) => [s.id, s]));
-      const latestConfig = await this.loadConfig(env);
-      const latestById = new Map(latestConfig.servers.map((s) => [s.id, s]));
+      const probedById = new Map();
+      for (let index = 0; index < probedServers.length; index += 1) {
+          const server = probedServers[index];
+          if (server) probedById.set(server.id, server);
+      }
+      const latestConfig = await this.loadConfig(env, scheduledStatusOnly ? { skipHistoryNormalization: true } : {});
+      const latestById = new Map();
+      for (let index = 0; index < latestConfig.servers.length; index += 1) {
+          const server = latestConfig.servers[index];
+          latestById.set(server.id, server);
+      }
       const notifyQueue = [];
       const sourceConfig = latestConfig;
-      const baseConfig = this.sanitizeConfig({ icons: sourceConfig.icons !== undefined ? sourceConfig.icons : latestConfig.icons, telegram: sourceConfig.telegram !== undefined ? sourceConfig.telegram : latestConfig.telegram, logging: sourceConfig.logging !== undefined ? sourceConfig.logging : latestConfig.logging, servers: sourceConfig.servers, updatedAt: sourceConfig.updatedAt || latestConfig.updatedAt || 0 });
+      const baseConfig = this.sanitizeConfig({ icons: sourceConfig.icons !== undefined ? sourceConfig.icons : latestConfig.icons, telegram: sourceConfig.telegram !== undefined ? sourceConfig.telegram : latestConfig.telegram, logging: sourceConfig.logging !== undefined ? sourceConfig.logging : latestConfig.logging, servers: sourceConfig.servers, updatedAt: sourceConfig.updatedAt || latestConfig.updatedAt || 0 }, scheduledStatusOnly ? { skipHistoryNormalization: true } : {});
       const mergedConfig = {
           icons: baseConfig.icons, telegram: baseConfig.telegram, logging: baseConfig.logging, updatedAt: Math.max(baseConfig.updatedAt || 0, latestConfig.updatedAt || 0),
           servers: baseConfig.servers.map((latest) => {
@@ -729,14 +778,16 @@
       if (probeSource === 'scheduled') {
           mergedConfig.nextScheduledCursor = nextCursor;
       }
-      const keepAliveTargets = mergedConfig.servers.filter((server) => batchIds.has(server.id));
-      const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server, Date.now(), { refreshLastPlayed: false, env, logConfig: baseConfig, requestId: 'batch-' + probeStartedAt.toString(36), flow: probeSource }));
-      for (const result of keepAliveResults) {
-          if (!result || !result.touched) continue;
-          const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
-          if (index >= 0) mergedConfig.servers[index] = result.server;
-          if (result.alert && this.isTelegramEnabled(env, baseConfig)) {
-              notifyQueue.push({ ...result.alert, kind: 'keepAlive' });
+      if (!scheduledStatusOnly) {
+          const keepAliveTargets = mergedConfig.servers.filter((server) => batchIds.has(server.id));
+          const keepAliveResults = await this.mapWithConcurrency(keepAliveTargets, concurrencyLimit, (server) => this.refreshKeepAliveIfNeeded(server, Date.now(), { refreshLastPlayed: false, env, logConfig: baseConfig, requestId: 'batch-' + probeStartedAt.toString(36), flow: probeSource }));
+          for (const result of keepAliveResults) {
+              if (!result || !result.touched) continue;
+              const index = mergedConfig.servers.findIndex((server) => server.id === result.server.id);
+              if (index >= 0) mergedConfig.servers[index] = result.server;
+              if (result.alert && this.isTelegramEnabled(env, baseConfig)) {
+                  notifyQueue.push({ ...result.alert, kind: 'keepAlive' });
+              }
           }
       }
       if (probeSource === 'manual' && Boolean(options.refreshLastPlayed)) {
@@ -772,39 +823,41 @@
               mergedConfig.updatedAt = Math.max(mergedConfig.updatedAt || 0, Date.now());
           }
       }
-      const savedConfig = await this.saveConfig(env, mergedConfig);
+      const savedConfig = await this.saveConfig(env, mergedConfig, scheduledStatusOnly ? { skipHistoryNormalization: true } : {});
       const responseConfig = {
           ...savedConfig,
           nextCursor: mergedConfig.nextCursor,
           hasMore: mergedConfig.hasMore
       };
-      const statusCounts = mergedConfig.servers.reduce((counts, server) => {
-          const status = ['online', 'offline', 'unknown'].includes(server.status) ? server.status : 'unknown';
-          counts[status] = (counts[status] || 0) + 1;
-          return counts;
-      }, { online: 0, offline: 0, unknown: 0 });
-      const probeDetails = probedServers.map((server) => ({
-          id: server.id,
-          name: server.name,
-          previousStatus: server.previousStatus,
-          status: server.status,
-          latency: server.latency,
-          failures: server.consecutiveFailures || 0,
-          addresses: Array.isArray(server.addressProbeResults) ? server.addressProbeResults.map((item) => ({ url: item.url, ok: item.ok, latency: item.latency || 0, error: item.error || '' })) : []
-      }));
-      await this.appendRuntimeLog(env, suppressProbeFailures ? 'warn' : 'info', 'probe.done', (probeSource === 'manual' ? '手动刷新完成' : '定时探测完成'), {
-          source: probeSource,
-          forceMedia,
-          cursor,
-          hasMore: Boolean(mergedConfig.hasMore),
-          nextScheduledCursor: Number(mergedConfig.nextScheduledCursor) || 0,
-          elapsedMs: Date.now() - probeStartedAt,
-          statusCounts,
-          suppressedBroadFailure: Boolean(suppressProbeFailures),
-          notifyCount: notifyQueue.length,
-          notifySuccessCount: sendResults.filter(Boolean).length,
-          targets: probeDetails
-      }, { config: savedConfig });
+      if (!scheduledStatusOnly) {
+          const statusCounts = mergedConfig.servers.reduce((counts, server) => {
+              const status = ['online', 'offline', 'unknown'].includes(server.status) ? server.status : 'unknown';
+              counts[status] = (counts[status] || 0) + 1;
+              return counts;
+          }, { online: 0, offline: 0, unknown: 0 });
+          const probeDetails = probedServers.map((server) => ({
+              id: server.id,
+              name: server.name,
+              previousStatus: server.previousStatus,
+              status: server.status,
+              latency: server.latency,
+              failures: server.consecutiveFailures || 0,
+              addresses: Array.isArray(server.addressProbeResults) ? server.addressProbeResults.map((item) => ({ url: item.url, ok: item.ok, latency: item.latency || 0, error: item.error || '' })) : []
+          }));
+          await this.appendRuntimeLog(env, suppressProbeFailures ? 'warn' : 'info', 'probe.done', (probeSource === 'manual' ? '手动刷新完成' : '定时探测完成'), {
+              source: probeSource,
+              forceMedia,
+              cursor,
+              hasMore: Boolean(mergedConfig.hasMore),
+              nextScheduledCursor: Number(mergedConfig.nextScheduledCursor) || 0,
+              elapsedMs: Date.now() - probeStartedAt,
+              statusCounts,
+              suppressedBroadFailure: Boolean(suppressProbeFailures),
+              notifyCount: notifyQueue.length,
+              notifySuccessCount: sendResults.filter(Boolean).length,
+              targets: probeDetails
+          }, { config: savedConfig });
+      }
       return responseConfig;
   }
 ,
