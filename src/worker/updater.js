@@ -18,6 +18,32 @@
       return 'https://raw.githubusercontent.com/' + encodeURIComponent(repo.owner) + '/' + encodeURIComponent(repo.repo) + '/' + encodeURIComponent(repo.branch) + '/' + repo.file.split('/').map(encodeURIComponent).join('/');
   },
 
+  normalizeRuntimeUpdateMode(mode) {
+      return mode === 'docker' ? 'docker' : 'worker';
+  },
+
+  getRuntimeUpdateMode(env) {
+      return this.normalizeRuntimeUpdateMode(this.isDockerRuntime(env) ? 'docker' : 'worker');
+  },
+
+  getRuntimeVersionMap() {
+      const versions = this.APP_RUNTIME_VERSIONS;
+      const fallback = this.APP_VERSION || '';
+      if (!versions || typeof versions !== 'object') return { worker: fallback, docker: fallback };
+      const worker = String(versions.worker || fallback).trim();
+      const docker = String(versions.docker || fallback).trim();
+      return {
+          worker: worker || fallback,
+          docker: docker || fallback
+      };
+  },
+
+  getCurrentRuntimeVersion(env, mode) {
+      const runtimeMode = this.normalizeRuntimeUpdateMode(mode || this.getRuntimeUpdateMode(env));
+      const versions = this.getRuntimeVersionMap();
+      return runtimeMode === 'docker' ? versions.docker : versions.worker;
+  },
+
   getMissingUpdateEnv(env) {
       const missing = [];
       if (!['1', 'true', 'yes', 'on'].includes(String(env.UPDATE_ENABLED || '').toLowerCase())) missing.push('UPDATE_ENABLED');
@@ -67,6 +93,7 @@
       if (!env || !env.EMBY_DB || !this.canSelfUpdate(env)) return { skipped: true, reason: 'disabled' };
 
       const checkedAt = Date.now();
+      const currentVersion = this.getCurrentRuntimeVersion(env, 'worker');
       let lastCheckedAt = 0;
       try {
           lastCheckedAt = this.parseUpdateCheckTimestamp(await env.EMBY_DB.get(this.UPDATE_CHECK_KV_KEY));
@@ -81,13 +108,13 @@
 
       try {
           const latestSource = await this.fetchLatestWorkerSource(env);
-          const latestVersion = this.extractAppVersion(latestSource) || 'unknown';
-          const updated = latestVersion !== 'unknown' && latestVersion !== this.APP_VERSION;
+          const latestVersion = this.extractRuntimeVersion(latestSource, 'worker') || 'unknown';
+          const updated = latestVersion !== 'unknown' && latestVersion !== currentVersion;
           if (updated) await this.deployWorkerSource(env, latestSource);
           try {
               const logConfig = await this.loadConfig(env);
               await this.appendRuntimeLog(env, 'info', updated ? 'update.auto.deploy.done' : 'update.auto.check.done', updated ? '定时自动更新部署完成' : '定时自动更新检查完成', {
-                  currentVersion: this.APP_VERSION,
+                  currentVersion,
                   latestVersion,
                   updated
               }, { config: logConfig });
@@ -132,6 +159,17 @@
       if (exportMatch) return exportMatch[1];
       const match = text.match(/APP_VERSION:\s*['"]([^'"]+)['"]/);
       return match ? match[1] : '';
+  },
+
+  extractRuntimeVersion(source, mode) {
+      const runtimeMode = this.normalizeRuntimeUpdateMode(mode);
+      const text = String(source || '');
+      const blockMatch = text.match(/APP_RUNTIME_VERSIONS:\s*\{([\s\S]*?)\}\s*,/);
+      if (blockMatch) {
+          const runtimeMatch = blockMatch[1].match(new RegExp(runtimeMode + "\\s*:\\s*['\"]([^'\"]+)['\"]"));
+          if (runtimeMatch && runtimeMatch[1]) return runtimeMatch[1];
+      }
+      return this.extractAppVersion(text);
   },
 
   extractUpdateNotes(source) {

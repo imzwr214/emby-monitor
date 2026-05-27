@@ -15,9 +15,14 @@ const jsonString = (value) => JSON.stringify(String(value));
 
 const meta = JSON.parse(read('src/app-meta.json'));
 const version = String(meta.version || '').trim();
+const runtimeVersions = meta.updateChannels && typeof meta.updateChannels === 'object' ? meta.updateChannels : {};
+const workerVersion = String(runtimeVersions.worker || version).trim();
+const dockerVersion = String(runtimeVersions.docker || version).trim();
 const updateNotes = Array.isArray(meta.updateNotes) ? meta.updateNotes.map((item) => String(item)) : [];
 
 if (!version) throw new Error('src/app-meta.json missing version');
+if (!workerVersion) throw new Error('src/app-meta.json missing updateChannels.worker');
+if (!dockerVersion) throw new Error('src/app-meta.json missing updateChannels.docker');
 if (!updateNotes.length) throw new Error('src/app-meta.json missing updateNotes');
 
 const boot = read('src/frontend/boot.js');
@@ -91,6 +96,10 @@ const HTML_CONTENT = ${htmlContentLiteral};
 
 export default {
   APP_VERSION: ${jsonString(version)},
+  APP_RUNTIME_VERSIONS: {
+    worker: ${jsonString(workerVersion)},
+    docker: ${jsonString(dockerVersion)}
+  },
   APP_UPDATE_NOTES: [
 ${notesLiteral}
   ],

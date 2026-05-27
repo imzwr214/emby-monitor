@@ -46,7 +46,7 @@ class DockerSelfUpdater {
     }
 
     this.lastStartedAt = Date.now();
-    this.updatePromise = this.runSelfUpdate(meta)
+    this.updatePromise = this.launchUpdateWorker(meta)
       .catch((error) => {
         console.error('[docker-update] failed:', error && error.stack ? error.stack : error);
         throw error;
@@ -60,6 +60,28 @@ class DockerSelfUpdater {
       queued: true,
       startedAt: this.lastStartedAt,
       ...capability
+    };
+  }
+
+  async launchUpdateWorker(meta = {}) {
+    const inspect = await this.inspectContainer(this.containerId);
+    const helperImage = String((((inspect || {}).Config || {}).Image) || '').trim() || this.image;
+    const targetImage = this.image || helperImage;
+    if (!helperImage) throw new Error('Missing helper image');
+    if (!targetImage) throw new Error('Missing target image');
+
+    const originalName = String(inspect.Name || '').replace(/^\/+/, '') || 'emby-monitor';
+    const helperName = `${originalName}-update-helper-${Date.now()}`;
+    const created = await this.createContainer(helperName, this.buildHelperCreateBody(inspect, helperImage, targetImage, meta));
+    const helperId = String((created && created.Id) || '');
+    if (!helperId) throw new Error('Docker create helper container returned no Id');
+    await this.startContainer(helperId);
+    console.log(`[docker-update] helper started: ${helperName}, target=${originalName}, image=${targetImage}, version=${meta.latestVersion || 'unknown'}`);
+    return {
+      ok: true,
+      helperId,
+      helperName,
+      image: targetImage
     };
   }
 
@@ -117,6 +139,34 @@ class DockerSelfUpdater {
     }
   }
 
+  buildHelperCreateBody(inspect, helperImage, targetImage, meta = {}) {
+    const socketBind = this.resolveSocketBind(inspect);
+    const labels = {
+      'com.pototazhang.emby-js.role': 'docker-update-helper',
+      'com.pototazhang.emby-js.target': String(inspect && inspect.Name ? inspect.Name : '').replace(/^\/+/, '') || 'emby-monitor',
+      'com.pototazhang.emby-js.target-id': this.containerId
+    };
+    const envVars = [
+      `DOCKER_CONTAINER_ID=${this.containerId}`,
+      `DOCKER_UPDATE_IMAGE=${targetImage}`,
+      `DOCKER_SOCKET_PATH=${this.socketPath}`
+    ];
+    if (meta && meta.latestVersion) envVars.push(`DOCKER_UPDATE_LATEST_VERSION=${String(meta.latestVersion)}`);
+
+    return this.omitEmpty({
+      Image: helperImage,
+      WorkingDir: ((inspect && inspect.Config && inspect.Config.WorkingDir) || '/app'),
+      Cmd: ['node', 'docker/update-runner.cjs'],
+      Env: envVars,
+      Labels: labels,
+      HostConfig: this.omitEmpty({
+        Binds: socketBind ? [socketBind] : undefined,
+        NetworkMode: 'none',
+        RestartPolicy: { Name: 'no' }
+      })
+    });
+  }
+
   buildCreateBody(inspect, image) {
     const config = inspect && inspect.Config ? inspect.Config : {};
     const hostConfig = inspect && inspect.HostConfig ? inspect.HostConfig : {};
@@ -169,6 +219,40 @@ class DockerSelfUpdater {
       next[key] = entry;
     }
     return next;
+  }
+
+  resolveSocketBind(inspect) {
+    const mounts = Array.isArray(inspect && inspect.Mounts) ? inspect.Mounts : [];
+    for (const mount of mounts) {
+      if (String(mount && mount.Destination || '') !== this.socketPath) continue;
+      if (String(mount && mount.Type || '') !== 'bind') break;
+      if (!mount.Source) break;
+      if (mount.RW === false) throw new Error(`Docker socket mount ${this.socketPath} is read-only`);
+      return `${mount.Source}:${mount.Destination}`;
+    }
+
+    const binds = Array.isArray(inspect && inspect.HostConfig && inspect.HostConfig.Binds) ? inspect.HostConfig.Binds : [];
+    for (const bind of binds) {
+      const parsed = this.parseBindMount(bind);
+      if (parsed.destination !== this.socketPath) continue;
+      if (parsed.readOnly) throw new Error(`Docker socket bind ${this.socketPath} is read-only`);
+      return bind;
+    }
+
+    return `${this.socketPath}:${this.socketPath}`;
+  }
+
+  parseBindMount(bind) {
+    const parts = String(bind || '').split(':');
+    const source = parts[0] || '';
+    const destination = parts[1] || '';
+    const mode = parts.slice(2).join(':');
+    return {
+      source,
+      destination,
+      mode,
+      readOnly: mode.split(',').includes('ro')
+    };
   }
 
   async pullImage(imageRef) {

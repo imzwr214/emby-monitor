@@ -8,8 +8,16 @@
 
 每次完成修复、优化、功能更新或任何会影响线上行为的代码修改后，必须先更新 `src/app-meta.json`：
 
-- `version` 是唯一版本源。
+- `version` 是共享展示版本。
+- `updateChannels.worker` 和 `updateChannels.docker` 是页面自更新通道版本；只发某一端时，只提升对应通道。
 - `updateNotes` 必须包含本次主要改动。
+
+更新通道修改规则必须明确执行：
+
+- 只发布 Worker 更新：修改 `updateChannels.worker`；不要改 `updateChannels.docker`。
+- 只发布 Docker 更新：修改 `updateChannels.docker`；不要改 `updateChannels.worker`。
+- 两端都发布，或者改动会同时影响两端更新包：同时修改 `updateChannels.worker` 和 `updateChannels.docker`。
+- `version` 只用于页面展示和导出元数据，不作为 Worker/Docker 是否有更新的唯一判断依据。
 
 随后运行：
 
@@ -21,7 +29,8 @@ npm run verify
 提交或推送前至少确认：
 
 - `npm run check` 通过。
-- 生成产物中前端 `const APP_VERSION` 和 Worker `APP_VERSION:` 与 `src/app-meta.json` 一致。
+- 生成产物中前端 `const APP_VERSION` 和 Worker `APP_VERSION:` 与 `src/app-meta.json` 的 `version` 一致。
+- 生成产物中的 `APP_RUNTIME_VERSIONS` 与 `src/app-meta.json` 的 `updateChannels` 一致。
 - 生成产物中 `APP_UPDATE_NOTES` 已包含本次主要改动。
 - `wrangler.toml` 的 `main = "emby.js"` 没有改变。
 - 不改 API 路径、KV key、自更新 marker、React CDN 版本和 URL 安全边界，除非任务明确要求并已做回归。

@@ -34,7 +34,7 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 ```text
 .
 ├── src/
-│   ├── app-meta.json    # 唯一版本源：version 和 updateNotes
+│   ├── app-meta.json    # 共享展示版本、Worker/Docker 更新通道版本和 updateNotes
 │   ├── frontend/        # 前端 HTML/CSS/JSX 片段，构建后内联进 HTML_CONTENT
 │   └── worker/          # Worker 对象方法片段，构建后拼进 export default
 ├── scripts/
@@ -49,9 +49,11 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 ## 开发流程
 
 1. 修改 `src/` 中对应职责文件。
-2. 如果改动影响线上行为，先更新 `src/app-meta.json` 的 `version` 和 `updateNotes`。
+2. 如果改动影响线上行为，先更新 `src/app-meta.json` 的 `version`、`updateChannels` 和 `updateNotes`。
 3. 执行 `npm run check`，它会重新生成根目录 `emby.js` 并校验版本、更新说明、KV key、自更新 marker 和 `wrangler.toml` 入口。
 4. 提交时包含 `src/`、`scripts/`、文档和生成后的根目录 `emby.js`。
+
+`version` 是共享展示版本；页面自更新通道按 `updateChannels.worker` 和 `updateChannels.docker` 分开比较。以后如果只发布 Docker 镜像，可以只提升 `updateChannels.docker`，这样 Worker 不会误报更新；只发布 Worker 版本时同理。
 
 普通部署、GitHub raw 自更新、一键更新和手动复制部署仍然使用根目录 `emby.js`，不需要部署 `src/` 里的拆分文件。
 
@@ -106,7 +108,7 @@ Telegram 交流群：[https://t.me/+mrGqjEyRCZk3YTI1](https://t.me/+mrGqjEyRCZk3
 
 ### 可选：开启页面一键更新
 
-默认情况下，页面只会检查 GitHub 仓库是否有新版本。要允许页面直接更新当前 Worker，需要额外设置下面这些环境变量。
+默认情况下，页面只会检查 GitHub 仓库是否有新版本。Worker 运行时只比较 Worker 通道版本，不会因为 Docker 通道发版而提示更新。要允许页面直接更新当前 Worker，需要额外设置下面这些环境变量。
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
@@ -218,6 +220,7 @@ crons = ["*/1 * * * *"]
 - KV 数据默认持久化到宿主机 `./docker-data/kv.json`。
 - 定时任务由容器内调度器执行，不再受 Cloudflare 免费版 `10ms CPU` 限制。
 - 可以直接首次部署在 Docker 上，不依赖 Cloudflare Workers。
+- 页面内一键更新会先启动一个临时 helper 容器，再由它替换当前业务容器，避免“更新进程把自己停掉后无法继续拉起新容器”。
 
 ### 部署方式 1：直接拉取镜像运行
 
@@ -302,4 +305,6 @@ npm run start:docker-local
 | `DOCKER_UPDATE_IMAGE` | `ghcr.io/pototazhang/emby-js:latest` | 一键更新时拉取的目标镜像。 |
 | `DOCKER_SOCKET_PATH` | `/var/run/docker.sock` | Docker Engine socket 路径。 |
 
-其他业务环境变量如 `TG_BOT_TOKEN`、`TG_CHAT_ID` 仍可继续使用。纯 Docker 部署时通常不需要配置 `CF_ACCOUNT_ID`、`CF_WORKER_NAME`、`CF_API_TOKEN` 这类 Cloudflare Worker 专用变量。如果你要使用页面内的一键更新，必须额外挂载 `/var/run/docker.sock`，并保持 `DOCKER_UPDATE_IMAGE` 指向一个可拉取的新镜像。
+其他业务环境变量如 `TG_BOT_TOKEN`、`TG_CHAT_ID` 仍可继续使用。纯 Docker 部署时通常不需要配置 `CF_ACCOUNT_ID`、`CF_WORKER_NAME`、`CF_API_TOKEN` 这类 Cloudflare Worker 专用变量。如果你要使用页面内的一键更新，必须额外挂载 `/var/run/docker.sock`，并保持 `DOCKER_UPDATE_IMAGE` 指向一个可拉取的新镜像。Docker 运行时只比较 Docker 通道版本，不会因为 Worker 通道发版而误报更新。
+
+如果你当前运行的是带旧版自更新逻辑的历史镜像，那么第一次需要手动 `docker pull` 并重新 `docker run` 或 `docker compose up -d` 到包含本修复的新镜像；从这一版开始，后续页面内一键更新才会正常完成容器替换。

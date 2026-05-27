@@ -9,6 +9,12 @@
       return new Date(shanghaiTime).toISOString().slice(0, 10);
   },
 
+  getShanghaiClock(time = Date.now()) {
+      const shanghaiTime = time + (8 * 60 * 60 * 1000);
+      const date = new Date(shanghaiTime);
+      return { hour: date.getUTCHours(), minute: date.getUTCMinutes() };
+  },
+
   buildDailyMediaStats(media, counts, now = Date.now()) {
       const todayKey = this.getShanghaiDayKey(now);
       const yesterdayKey = this.getShanghaiDayKey(now, -1);
@@ -279,6 +285,8 @@
       const source = options.source === 'manual' ? 'manual' : 'scheduled';
       const todayKey = this.getShanghaiDayKey(now);
       const isDockerScheduled = source === 'scheduled' && Boolean(options.env && options.env.RUNTIME_ENV === 'docker');
+      const shanghaiClock = this.getShanghaiClock(now);
+      const isShanghaiMidnightRun = shanghaiClock.hour === 0 && shanghaiClock.minute === 0;
       const shouldRunManual = source === 'manual' && Boolean(options.refreshLastPlayed);
       const targets = cleanConfig.servers.filter((server) => server.mediaStats && server.mediaStats.enabled);
       if (source === 'manual' && !shouldRunManual) return cleanConfig;
@@ -299,6 +307,10 @@
       const targetById = new Map(targets.map((server) => [String(server.id), server]));
 
       if (source === 'scheduled') {
+          const hasPendingQueue = isDockerScheduled && nextQueueDayKey === todayKey && Array.isArray(cleanConfig.lastPlayedQueue) && cleanConfig.lastPlayedQueue.length > 0;
+          if (isDockerScheduled && !isShanghaiMidnightRun && !hasPendingQueue) {
+              return cleanConfig;
+          }
           if (nextDailyKey === todayKey && (!Array.isArray(cleanConfig.lastPlayedQueue) || cleanConfig.lastPlayedQueue.length === 0)) {
               return cleanConfig;
           }

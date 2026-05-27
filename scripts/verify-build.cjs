@@ -39,12 +39,17 @@ const source = read('emby.js');
 const wrangler = read('wrangler.toml');
 const meta = JSON.parse(read('src/app-meta.json'));
 const metaVersion = String(meta.version || '').trim();
+const metaRuntimeVersions = meta.updateChannels && typeof meta.updateChannels === 'object' ? meta.updateChannels : {};
+const metaWorkerVersion = String(metaRuntimeVersions.worker || metaVersion).trim();
+const metaDockerVersion = String(metaRuntimeVersions.docker || metaVersion).trim();
 const metaNotes = Array.isArray(meta.updateNotes) ? meta.updateNotes.map((item) => String(item)) : [];
 
 if (source.length < 10000) fail('emby.js is unexpectedly small');
 if (source.length > 5 * 1024 * 1024) fail('emby.js is unexpectedly large');
 verifyModuleSyntax(source);
 if (!metaVersion) fail('src/app-meta.json missing version');
+if (!metaWorkerVersion) fail('src/app-meta.json missing updateChannels.worker');
+if (!metaDockerVersion) fail('src/app-meta.json missing updateChannels.docker');
 if (metaNotes.length < 1) fail('src/app-meta.json updateNotes must contain at least one note');
 
 [
@@ -52,6 +57,7 @@ if (metaNotes.length < 1) fail('src/app-meta.json updateNotes must contain at le
   'HTML_CONTENT',
   'export default',
   'APP_VERSION',
+  'APP_RUNTIME_VERSIONS',
   'APP_UPDATE_NOTES'
 ].forEach((marker) => requireIncludes(source, marker));
 
@@ -59,6 +65,14 @@ const workerVersionMatch = source.match(/export\s+default\s*\{[\s\S]*?APP_VERSIO
 if (!workerVersionMatch) fail('missing Worker APP_VERSION literal');
 if (workerVersionMatch[1] !== metaVersion) {
   fail(`Worker APP_VERSION does not match src/app-meta.json: worker=${workerVersionMatch[1]} meta=${metaVersion}`);
+}
+const runtimeVersionsMatch = source.match(/APP_RUNTIME_VERSIONS:\s*\{\s*worker:\s*["']([^"']+)["']\s*,\s*docker:\s*["']([^"']+)["']\s*\}\s*,/);
+if (!runtimeVersionsMatch) fail('missing APP_RUNTIME_VERSIONS object literal');
+if (runtimeVersionsMatch[1] !== metaWorkerVersion) {
+  fail(`Worker runtime update version does not match src/app-meta.json: generated=${runtimeVersionsMatch[1]} meta=${metaWorkerVersion}`);
+}
+if (runtimeVersionsMatch[2] !== metaDockerVersion) {
+  fail(`Docker runtime update version does not match src/app-meta.json: generated=${runtimeVersionsMatch[2]} meta=${metaDockerVersion}`);
 }
 let html = '';
 const htmlMatch = source.match(/const HTML_CONTENT = ([\s\S]*?);\n\nexport default/);

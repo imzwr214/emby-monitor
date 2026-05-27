@@ -342,16 +342,18 @@
 
       try {
           const capability = await this.getRuntimeUpdateCapability(env);
+          const currentVersion = this.getCurrentRuntimeVersion(env, capability.mode);
           const logConfig = await this.loadConfig(env);
           await this.appendRuntimeLog(env, 'info', 'update.check', '开始检查程序更新', {}, { config: logConfig });
           const latestSource = await this.fetchLatestWorkerSource(env);
-          const latestVersion = this.extractAppVersion(latestSource) || 'unknown';
+          const latestVersion = this.extractRuntimeVersion(latestSource, capability.mode) || 'unknown';
+          const hasUpdate = latestVersion !== 'unknown' && latestVersion !== currentVersion;
           const releaseNotes = this.extractUpdateNotes(latestSource);
-          await this.appendRuntimeLog(env, 'info', 'update.check.done', '程序更新检查完成', { currentVersion: this.APP_VERSION, latestVersion, hasUpdate: latestVersion !== 'unknown' && latestVersion !== this.APP_VERSION }, { config: logConfig });
+          await this.appendRuntimeLog(env, 'info', 'update.check.done', '程序更新检查完成', { currentVersion, latestVersion, hasUpdate }, { config: logConfig });
           return this.json({
-              currentVersion: this.APP_VERSION,
+              currentVersion,
               latestVersion,
-              hasUpdate: latestVersion !== 'unknown' && latestVersion !== this.APP_VERSION,
+              hasUpdate,
               releaseNotes,
               canUpdate: capability.canUpdate,
               sourceUrl: this.getUpdateRawUrl(env),
@@ -363,9 +365,10 @@
           });
       } catch(e) {
           const capability = await this.getRuntimeUpdateCapability(env).catch(() => ({ mode: 'worker', targetLabel: 'Cloudflare Worker', canUpdate: this.canSelfUpdate(env), missing: this.getMissingUpdateEnv(env), busy: false, image: '' }));
+          const currentVersion = this.getCurrentRuntimeVersion(env, capability.mode);
           await this.appendRuntimeLog(env, 'error', 'update.check.error', '程序更新检查失败', { error: e.message || String(e) });
           return this.json({
-              currentVersion: this.APP_VERSION,
+              currentVersion,
               latestVersion: 'unknown',
               hasUpdate: false,
               releaseNotes: [],
@@ -385,6 +388,7 @@
       if (auth) return auth;
 
       const capability = await this.getRuntimeUpdateCapability(env);
+      const currentVersion = this.getCurrentRuntimeVersion(env, capability.mode);
       if (!capability.canUpdate) {
           return this.json({ ok: false, error: 'Self update is not configured', missing: capability.missing, updateMode: capability.mode }, 400);
       }
@@ -392,10 +396,10 @@
           const logConfig = await this.loadConfig(env);
           await this.appendRuntimeLog(env, 'info', 'update.apply', '开始执行程序更新', {}, { config: logConfig });
           const latestSource = await this.fetchLatestWorkerSource(env);
-          const latestVersion = this.extractAppVersion(latestSource);
-          if (!latestVersion) return this.json({ ok: false, error: 'Latest source has no APP_VERSION' }, 422);
+          const latestVersion = this.extractRuntimeVersion(latestSource, capability.mode);
+          if (!latestVersion) return this.json({ ok: false, error: 'Latest source has no runtime update version' }, 422);
           const releaseNotes = this.extractUpdateNotes(latestSource);
-          if (latestVersion === this.APP_VERSION) return this.json({ ok: true, updated: false, version: this.APP_VERSION, releaseNotes, updateMode: capability.mode });
+          if (latestVersion === currentVersion) return this.json({ ok: true, updated: false, version: currentVersion, releaseNotes, updateMode: capability.mode });
 
           if (capability.mode === 'docker') {
               const queued = await env.DOCKER_SELF_UPDATER.scheduleSelfUpdate({ latestVersion });
@@ -403,7 +407,7 @@
                   return this.json({ ok: false, error: queued && queued.error ? queued.error : 'Docker update unavailable', missing: queued && queued.missing ? queued.missing : capability.missing, updateMode: 'docker' }, 400);
               }
               await this.appendRuntimeLog(env, 'info', 'update.apply.done', 'Docker 更新任务已启动', {
-                  previousVersion: this.APP_VERSION,
+                  previousVersion: currentVersion,
                   version: latestVersion,
                   image: queued.image || capability.image || '',
                   alreadyRunning: Boolean(queued.alreadyRunning)
@@ -412,7 +416,7 @@
                   ok: true,
                   queued: true,
                   updated: true,
-                  previousVersion: this.APP_VERSION,
+                  previousVersion: currentVersion,
                   version: latestVersion,
                   releaseNotes,
                   updateMode: 'docker',
@@ -422,8 +426,8 @@
           }
 
           await this.deployWorkerSource(env, latestSource);
-          await this.appendRuntimeLog(env, 'info', 'update.apply.done', '程序更新部署完成', { previousVersion: this.APP_VERSION, version: latestVersion }, { config: logConfig });
-          return this.json({ ok: true, updated: true, previousVersion: this.APP_VERSION, version: latestVersion, releaseNotes, updateMode: 'worker' });
+          await this.appendRuntimeLog(env, 'info', 'update.apply.done', '程序更新部署完成', { previousVersion: currentVersion, version: latestVersion }, { config: logConfig });
+          return this.json({ ok: true, updated: true, previousVersion: currentVersion, version: latestVersion, releaseNotes, updateMode: 'worker' });
       } catch(e) {
           await this.appendRuntimeLog(env, 'error', 'update.apply.error', '程序更新失败', { error: e.message || String(e) });
           return this.json({ ok: false, error: e.message || 'Update failed' }, 502);
