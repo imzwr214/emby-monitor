@@ -75,6 +75,49 @@ body {
 .glow-online { background-color: #10b981; animation: breath-glow-online 2.5s ease-in-out infinite; }
 .glow-offline { background-color: #f43f5e; animation: breath-glow-offline 2s ease-in-out infinite; }
 
+.performance-lite .bg-canvas::after {
+    opacity: 0.18;
+}
+.performance-lite .orb {
+    display: none !important;
+}
+.performance-lite .dot-online,
+.performance-lite .dot-offline,
+.performance-lite .dot-updating,
+.performance-lite .glow-online,
+.performance-lite .glow-offline,
+.performance-lite .animate-spin {
+    animation: none !important;
+}
+.performance-lite .dot-online,
+.performance-lite .dot-offline,
+.performance-lite .dot-updating {
+    box-shadow: none !important;
+}
+.performance-lite .nav-header,
+.performance-lite .glass-panel,
+.performance-lite .dashboard-shell,
+.performance-lite .dashboard-row,
+.performance-lite .status-chart-shell,
+.performance-lite .server-card,
+.performance-lite .mobile-sheet,
+.performance-lite .mobile-form-sheet,
+.performance-lite .mobile-privacy-menu,
+.performance-lite .tab-nav,
+.performance-lite .dashboard-node-panel,
+.performance-lite .mobile-control-row .glass-panel,
+.performance-lite .mobile-control-row > button,
+.performance-lite .mobile-filter-group button {
+    background: rgba(255, 255, 255, 0.92) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+.performance-lite .mobile-modal-backdrop {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
 .app-shell { position: relative; z-index: 1; }
 
 .nav-header {

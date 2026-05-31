@@ -12,6 +12,33 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(ROOT_DIR, 'docke
 const KV_PATH = path.join(DATA_DIR, 'kv.json');
 const DEFAULT_PORT = Number(process.env.PORT) || 8787;
 const DEFAULT_HOST = process.env.HOST || '0.0.0.0';
+const LOG_TIMEZONE = process.env.LOG_TIMEZONE || 'Asia/Shanghai';
+
+function formatLogTime(time = Date.now()) {
+  return new Date(time).toLocaleString('zh-CN', {
+    timeZone: LOG_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+}
+
+function installTimestampedLogging() {
+  if (globalThis.__embyTimestampedLoggingInstalled) return;
+  globalThis.__embyTimestampedLoggingInstalled = true;
+  for (const level of ['log', 'info', 'warn', 'error']) {
+    const original = console[level].bind(console);
+    console[level] = (...args) => original(`[${formatLogTime()}]`, ...args);
+  }
+}
+
+function formatDurationMs(durationMs) {
+  return `${Math.max(0, Number(durationMs) || 0)}ms`;
+}
 
 function loadWorker() {
   const sourcePath = path.join(ROOT_DIR, 'emby.js');
@@ -105,12 +132,15 @@ function parseScheduleIntervalMs() {
 async function runScheduled(worker, env) {
   const ctx = new ExecutionContext('scheduled');
   const startedAt = Date.now();
+  console.log(`[scheduled] started startedAt=${formatLogTime(startedAt)}`);
   try {
     await worker.scheduled({ scheduledTime: startedAt, cron: process.env.SCHEDULE_CRON || '*/1 * * * *' }, env, ctx);
     await ctx.drain();
-    console.log(`[scheduled] completed in ${Date.now() - startedAt}ms`);
+    const finishedAt = Date.now();
+    console.log(`[scheduled] completed startedAt=${formatLogTime(startedAt)} finishedAt=${formatLogTime(finishedAt)} durationMs=${formatDurationMs(finishedAt - startedAt)}`);
   } catch (error) {
-    console.error('[scheduled] failed:', error && error.stack ? error.stack : error);
+    const failedAt = Date.now();
+    console.error(`[scheduled] failed startedAt=${formatLogTime(startedAt)} failedAt=${formatLogTime(failedAt)} durationMs=${formatDurationMs(failedAt - startedAt)} error=`, error && error.stack ? error.stack : error);
   }
 }
 
@@ -141,6 +171,7 @@ function scheduleLoop(worker, env) {
 }
 
 async function main() {
+  installTimestampedLogging();
   await fs.promises.mkdir(DATA_DIR, { recursive: true });
   const worker = loadWorker();
   const env = createEnv();

@@ -282,10 +282,11 @@
           hasMore: Boolean(config && config.hasMore)
       };
       const now = Date.now();
+      const scheduledTime = Number(options.scheduledTime) || now;
       const source = options.source === 'manual' ? 'manual' : 'scheduled';
-      const todayKey = this.getShanghaiDayKey(now);
+      const todayKey = this.getShanghaiDayKey(scheduledTime);
       const isDockerScheduled = source === 'scheduled' && Boolean(options.env && options.env.RUNTIME_ENV === 'docker');
-      const shanghaiClock = this.getShanghaiClock(now);
+      const shanghaiClock = this.getShanghaiClock(scheduledTime);
       const isShanghaiMidnightRun = shanghaiClock.hour === 0 && shanghaiClock.minute === 0;
       const shouldRunManual = source === 'manual' && Boolean(options.refreshLastPlayed);
       const targets = cleanConfig.servers.filter((server) => server.mediaStats && server.mediaStats.enabled);
@@ -432,6 +433,61 @@
           '',
           '请尽快播放任意内容以保留账号。'
       ].join('\n');
+  },
+
+  getGrowthLeaderboardRows(config, limit = 5) {
+      const items = Array.isArray(config && config.servers) ? config.servers : [];
+      return items
+          .filter((server) => server && server.mediaStats && server.mediaStats.enabled && server.mediaStats.counts)
+          .map((server) => {
+              const media = server.mediaStats || {};
+              const delta = media.dailyDelta || media.delta24h || {};
+              const movie = Number.isFinite(Number(delta.movie)) ? Number(delta.movie) : 0;
+              const series = Number.isFinite(Number(delta.series)) ? Number(delta.series) : 0;
+              const episode = Number.isFinite(Number(delta.episode)) ? Number(delta.episode) : 0;
+              const total = movie + series + episode;
+              const counts = media.counts || {};
+              const currentTotal = (Number.isFinite(Number(counts.movie)) ? Number(counts.movie) : 0) + (Number.isFinite(Number(counts.series)) ? Number(counts.series) : 0) + (Number.isFinite(Number(counts.episode)) ? Number(counts.episode) : 0);
+              return {
+                  server,
+                  sortValue: total,
+                  currentValue: currentTotal,
+                  deltas: { movie, series, episode }
+              };
+          })
+          .sort((a, b) => {
+              if (b.sortValue !== a.sortValue) return b.sortValue - a.sortValue;
+              if (b.currentValue !== a.currentValue) return b.currentValue - a.currentValue;
+              return String(a.server.name || '').localeCompare(String(b.server.name || ''), 'zh-Hans-CN');
+          })
+          .slice(0, Math.max(0, Math.floor(Number(limit) || 5)));
+  },
+
+  buildGrowthLeaderboardMessage(rows, dayKey = '') {
+      const items = Array.isArray(rows) ? rows.slice(0, 5) : [];
+      const formatSigned = (value) => {
+          const count = Number.isFinite(Number(value)) ? Number(value) : 0;
+          return (count > 0 ? '+' : '') + String(count);
+      };
+      const lines = items.length ? items.map((row, index) => {
+          const serverName = row && row.server && row.server.name ? String(row.server.name) : 'Unknown';
+          const total = Number.isFinite(Number(row && row.sortValue)) ? Number(row.sortValue) : 0;
+          const current = Number.isFinite(Number(row && row.currentValue)) ? Number(row.currentValue) : 0;
+          const deltas = row && row.deltas ? row.deltas : {};
+          return [
+              (index + 1) + '. ' + serverName,
+              '总增长 ' + formatSigned(total),
+              '电影 ' + formatSigned(deltas.movie) + ' / 剧集 ' + formatSigned(deltas.series) + ' / 单集 ' + formatSigned(deltas.episode),
+              '当前总量 ' + current.toLocaleString('zh-CN')
+          ].join('\n');
+      }).join('\n\n') : ['暂无可发送的增长数据'].join('\n');
+      return [
+          '📈 每日资源增长榜单',
+          dayKey ? '日期：' + dayKey : '',
+          '前五：',
+          '',
+          lines
+      ].filter(Boolean).join('\n');
   },
 
   async refreshKeepAliveIfNeeded(server, now = Date.now(), options = {}) {

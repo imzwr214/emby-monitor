@@ -442,6 +442,8 @@
           console.log('[scheduled] auto update failed:', e && e.message ? e.message : String(e));
       }));
       ctx.waitUntil((async () => {
+          const scheduledTime = Number(event && event.scheduledTime) || Date.now();
+          const growthDayKey = this.getShanghaiDayKey(scheduledTime);
           await this.compactOversizedHistoriesIfNeeded(env);
           const config = await this.loadConfig(env, { skipHistoryNormalization: true });
           const scheduledStartedAt = Date.now();
@@ -454,8 +456,21 @@
               if (Date.now() - scheduledStartedAt >= scheduledWallLimitMs) break;
           }
           if (env && env.RUNTIME_ENV === 'docker') {
-              const mediaUpdated = await this.refreshAllLastPlayedIfRequested(statusUpdated, { source: 'scheduled', env });
+              const mediaUpdated = await this.refreshAllLastPlayedIfRequested(statusUpdated, { source: 'scheduled', env, scheduledTime });
               statusUpdated = await this.saveConfig(env, mediaUpdated, { skipHistoryNormalization: true });
+              const enabledMediaServers = Array.isArray(statusUpdated.servers) ? statusUpdated.servers.filter((server) => server && server.mediaStats && server.mediaStats.enabled) : [];
+              const growthReady = enabledMediaServers.length > 0 && enabledMediaServers.every((server) => server.mediaStats && server.mediaStats.dailyKey === growthDayKey);
+              const growthNotified = String(statusUpdated.growthLeaderboardNotifiedDayKey || '') === growthDayKey;
+              if (growthReady && !growthNotified) {
+                  const growthRows = this.getGrowthLeaderboardRows(statusUpdated, 5);
+                  if (growthRows.length) {
+                      const sent = await this.sendTelegram(env, this.buildGrowthLeaderboardMessage(growthRows, growthDayKey), statusUpdated);
+                      if (sent) {
+                          statusUpdated = await this.saveConfig(env, { ...statusUpdated, growthLeaderboardNotifiedDayKey: growthDayKey }, { skipHistoryNormalization: true });
+                          await this.appendRuntimeLog(env, 'info', 'growth.leaderboard.notify', '每日资源增长榜单通知已发送', { dayKey: growthDayKey, topCount: growthRows.length }, { config: statusUpdated }).catch(() => {});
+                      }
+                  }
+              }
           }
           return statusUpdated;
       })().catch((e) => this.appendRuntimeLog(env, 'error', 'probe.scheduled.error', '定时探测失败', { error: e.message || String(e) })));

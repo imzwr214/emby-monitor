@@ -44,6 +44,7 @@ const App = () => {
     });
     const [isPrivacyMenuOpen, setIsPrivacyMenuOpen] = useState(false);
     const [showLastPlayed, setShowLastPlayed] = useState(() => localStorage.getItem('show_last_played') !== '0');
+    const [reduceEffects, setReduceEffects] = useState(() => localStorage.getItem('reduce_effects') === '1');
     const [availabilityRange, setAvailabilityRange] = useState(() => localStorage.getItem('availability_range') === 'week' ? 'week' : 'day');
 
     // 搜索与过滤
@@ -293,6 +294,11 @@ const App = () => {
     useEffect(() => { localStorage.setItem('availability_sort', availabilitySort); }, [availabilitySort]);
     useEffect(() => { localStorage.setItem('growth_metric', growthMetric); }, [growthMetric]);
     useEffect(() => { localStorage.setItem('show_last_played', showLastPlayed ? '1' : '0'); }, [showLastPlayed]);
+    useEffect(() => {
+        localStorage.setItem('reduce_effects', reduceEffects ? '1' : '0');
+        document.documentElement.classList.toggle('performance-lite', reduceEffects);
+        if (document.body) document.body.classList.toggle('performance-lite', reduceEffects);
+    }, [reduceEffects]);
 
     const syncToCloud = async (newServers, newIcons, nextTelegram = telegramForm, options = {}) => {
         const serverById = new Map(servers.map(s => [s.id, s]));
@@ -1918,6 +1924,24 @@ const App = () => {
                                             {isApplyingUpdate ? '更新中...' : '一键更新'}
                                         </button>
                                     </div>
+                                </div>
+                                </div>
+
+                                {/* 性能模式 */}
+                                <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm">
+                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                            <Icons.Glasses className="w-4 h-4 text-slate-600" />性能模式
+                                        </div>
+                                        <div className="mt-1 text-[11px] font-bold text-slate-500">
+                                            关闭漂浮背景、呼吸灯和大面积玻璃模糊，适合手机或老电脑。
+                                        </div>
+                                    </div>
+                                    <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+                                        <input type="checkbox" checked={reduceEffects} onChange={e => setReduceEffects(e.target.checked)} className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500" />
+                                        省电/轻量模式
+                                    </label>
                                 </div>
                                 </div>
 

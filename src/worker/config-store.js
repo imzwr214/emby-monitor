@@ -5,7 +5,7 @@
  * KV key `config` 和配置字段 shape 需要兼容旧数据。
  */
   emptyConfig() {
-      return { servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0, lastPlayedQueueDayKey: '', lastPlayedQueue: [] };
+      return { servers: [], icons: {}, updatedAt: 0, nextScheduledCursor: 0, lastPlayedQueueDayKey: '', lastPlayedQueue: [], growthLeaderboardNotifiedDayKey: '' };
   },
 
   async loadConfig(env, options = {}) {
@@ -59,7 +59,7 @@
 
   sanitizeConfig(config, options = {}) {
       const skipHistoryNormalization = Boolean(options.skipHistoryNormalization);
-      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0, lastPlayedDailyKey: '', lastPlayedCursor: 0, lastPlayedQueueDayKey: '', lastPlayedQueue: [] };
+      const clean = { servers: [], icons: {}, telegram: { enabled: false, botToken: '', chatId: '' }, logging: { enabled: false }, updatedAt: 0, nextScheduledCursor: 0, lastPlayedDailyKey: '', lastPlayedCursor: 0, lastPlayedQueueDayKey: '', lastPlayedQueue: [], growthLeaderboardNotifiedDayKey: '' };
       if (config && Number.isFinite(Number(config.updatedAt))) clean.updatedAt = Math.max(0, Number(config.updatedAt));
       if (config && Number.isFinite(Number(config.nextScheduledCursor))) clean.nextScheduledCursor = Math.max(0, Number(config.nextScheduledCursor));
       if (config && typeof config.lastPlayedDailyKey === 'string') clean.lastPlayedDailyKey = config.lastPlayedDailyKey.slice(0, 16);
@@ -70,6 +70,9 @@
               .map((value) => String(value || '').slice(0, 120))
               .filter(Boolean)
               .slice(0, 512);
+      }
+      if (config && typeof config.growthLeaderboardNotifiedDayKey === 'string') {
+          clean.growthLeaderboardNotifiedDayKey = config.growthLeaderboardNotifiedDayKey.slice(0, 16);
       }
       if (config && config.telegram && typeof config.telegram === 'object') {
           clean.telegram = { enabled: Boolean(config.telegram.enabled), botToken: String(config.telegram.botToken || '').trim(), chatId: String(config.telegram.chatId || '').trim() };

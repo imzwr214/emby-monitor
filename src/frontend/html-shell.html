@@ -20,6 +20,13 @@
     <script>
 {{BOOT_HEAD_SCRIPT}}
     </script>
+    <script>
+        try {
+            if (localStorage.getItem('reduce_effects') === '1') {
+                document.documentElement.classList.add('performance-lite');
+            }
+        } catch (e) {}
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" onerror="showBootError('React CDN 加载失败')"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" onerror="showBootError('ReactDOM CDN 加载失败')"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" onerror="showBootError('Babel CDN 加载失败')"></script>
