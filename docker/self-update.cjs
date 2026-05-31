@@ -7,6 +7,8 @@ class DockerSelfUpdater {
     this.image = String(options.image || '').trim();
     this.containerId = String(options.containerId || '').trim();
     this.enabled = !['0', 'false', 'no', 'off'].includes(String(options.enabled === undefined ? '1' : options.enabled).toLowerCase());
+    this.apiVersion = String(options.apiVersion || process.env.DOCKER_API_VERSION || '').trim();
+    this.apiVersionPromise = null;
     this.updatePromise = null;
     this.lastStartedAt = 0;
   }
@@ -280,6 +282,24 @@ class DockerSelfUpdater {
     return { name: trimmed, tag: 'latest' };
   }
 
+  async getApiVersion() {
+    if (this.apiVersion) return this.apiVersion;
+    if (this.apiVersionPromise) return this.apiVersionPromise;
+
+    this.apiVersionPromise = (async () => {
+      const response = await this.request('GET', '/version', undefined, { versioned: false });
+      const parsed = response.body ? JSON.parse(response.body) : {};
+      const version = String((parsed && (parsed.ApiVersion || parsed.APIVersion)) || '').trim();
+      if (!version) throw new Error('Docker API version not reported by daemon');
+      this.apiVersion = version;
+      return version;
+    })().finally(() => {
+      this.apiVersionPromise = null;
+    });
+
+    return this.apiVersionPromise;
+  }
+
   async inspectContainer(containerId) {
     const response = await this.requestJson('GET', `/containers/${encodeURIComponent(containerId)}/json`);
     return response;
@@ -315,12 +335,15 @@ class DockerSelfUpdater {
     }
   }
 
-  request(method, path, body) {
+  async request(method, path, body, options = {}) {
     const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    const versioned = options.versioned !== false;
+    const apiVersion = versioned ? await this.getApiVersion() : '';
+    const dockerPath = versioned ? `/v${apiVersion}${path}` : path;
     return new Promise((resolve, reject) => {
       const req = http.request({
         socketPath: this.socketPath,
-        path: `/v1.43${path}`,
+        path: dockerPath,
         method,
         headers: payload ? {
           'Content-Type': 'application/json',
