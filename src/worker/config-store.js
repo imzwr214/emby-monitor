@@ -97,9 +97,9 @@
                           seenFallbackUrls.add(key);
                           return true;
                       })
-                      .slice(0, 4) : [];
+                      .slice(0, 8) : [];
                   return {
-                      id: s.id || Date.now(), name: String(s.name || parsed.hostname).slice(0, 80), url: mainUrl, fallbackUrls, customIcon: typeof s.customIcon === 'string' ? s.customIcon : null,
+                      id: s.id || Date.now(), name: String(s.name || parsed.hostname).slice(0, 80), remoteName: String(s.remoteName || '').slice(0, 80), url: mainUrl, fallbackUrls, customIcon: typeof s.customIcon === 'string' ? s.customIcon : null,
                       status: ['online', 'offline', 'unknown'].includes(s.status) ? s.status : 'unknown',
                       totalChecks: Number.isFinite(Number(s.totalChecks)) ? Math.max(0, Number(s.totalChecks)) : 0, successfulChecks: Number.isFinite(Number(s.successfulChecks)) ? Math.max(0, Number(s.successfulChecks)) : 0,
                       uptime: typeof s.uptime === 'string' ? s.uptime : '0.0', latency: Number.isFinite(Number(s.latency)) ? Math.max(0, Number(s.latency)) : 0,
@@ -268,7 +268,8 @@
           return {
               url: parsed.toString().replace(/\/$/, ''),
               ok: Boolean(item.ok),
-              latency: Number.isFinite(Number(item.latency)) ? Math.max(0, Number(item.latency)) : 0
+              latency: Number.isFinite(Number(item.latency)) ? Math.max(0, Number(item.latency)) : 0,
+              serverName: String(item.serverName || '').slice(0, 80)
           };
       }).filter(Boolean);
   },

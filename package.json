@@ -12,16 +12,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pototazhang/emby-js.git"
+    "url": "git+https://github.com/imzwr214/emby-monitor.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/pototazhang/emby-js/issues"
+    "url": "https://github.com/imzwr214/emby-monitor/issues"
   },
-  "homepage": "https://github.com/pototazhang/emby-js#readme",
+  "homepage": "https://github.com/imzwr214/emby-monitor#readme",
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "lucide-react": "^1.16.0",

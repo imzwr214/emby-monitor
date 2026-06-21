@@ -59,9 +59,38 @@
   },
 
   async fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+      const env = options.env || null;
+      const cleanOptions = { ...options };
+      delete cleanOptions.env;
+      const proxied = await this.fetchViaEgressProxy(url, cleanOptions, timeoutMs, env);
+      if (proxied) return proxied;
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), timeoutMs);
-      try { return await fetch(url, { ...options, signal: c.signal }); } finally { clearTimeout(t); }
+      try { return await fetch(url, { ...cleanOptions, signal: c.signal }); } finally { clearTimeout(t); }
+  },
+
+  extractEmbyServerName(data) {
+      if (!data || typeof data !== 'object') return '';
+      const candidates = [
+          data.ServerName,
+          data.Name,
+          data.SystemInfo && data.SystemInfo.ServerName,
+          data.SystemInfo && data.SystemInfo.Name
+      ];
+      for (const value of candidates) {
+          const name = String(value || '').trim();
+          if (name) return name.slice(0, 80);
+      }
+      return '';
+  },
+
+  shouldUseRemoteServerName(server, remoteName) {
+      const name = String(server && server.name ? server.name : '').trim();
+      if (!remoteName || !name) return Boolean(remoteName);
+      const parsed = this.normalizeServerUrl(server && server.url ? server.url : '');
+      const hostname = parsed ? parsed.hostname.toLowerCase() : '';
+      const normalizedName = name.toLowerCase();
+      return normalizedName === hostname || normalizedName === hostname.replace(/^emby\./, '');
   },
 
   async probeEmbyServer(server, targetUrl, options = {}) {
@@ -73,8 +102,14 @@
       const start = Date.now();
       const probePath = async (path) => {
           try {
-              const response = await this.fetchWithTimeout(targetUrl + path, { method: 'GET', headers }, timeoutMs);
-              if (response.status >= 200 && response.status < 400) return { ok: true, latency: Date.now() - start };
+              const response = await this.fetchWithTimeout(targetUrl + path, { method: 'GET', headers, env: options.env }, timeoutMs);
+              if (response.status >= 200 && response.status < 400) {
+                  let serverName = '';
+                  if (path.includes('/System/Info')) {
+                      try { serverName = this.extractEmbyServerName(await response.clone().json()); } catch(e) {}
+                  }
+                  return { ok: true, latency: Date.now() - start, serverName };
+              }
               if (response.status === 401 || response.status === 403) return { ok: true, latency: Date.now() - start };
               return { ok: false, latency: 0 };
           } catch(e) {
@@ -112,9 +147,9 @@
           try {
               result = await this.probeEmbyServer(server, targetUrl, options);
           } catch(e) {}
-          addressProbeResults.push({ url: targetUrl, ok: Boolean(result.ok), latency: Number(result.latency) || 0 });
+          addressProbeResults.push({ url: targetUrl, ok: Boolean(result.ok), latency: Number(result.latency) || 0, serverName: String(result.serverName || '') });
           if (result.ok) {
-              return { ok: true, latency: Number(result.latency) || 0, addressProbeResults };
+              return { ok: true, latency: Number(result.latency) || 0, serverName: String(result.serverName || ''), addressProbeResults };
           }
       }
       return { ok: false, latency: 0, addressProbeResults };
@@ -141,7 +176,8 @@
       }
       server.mediaStatsTouched = true;
       const limited = Boolean(options.limited);
-      const limitedApiOptions = limited ? { maxBases: 1, maxProfiles: 1, maxAttempts: 1, timeoutMs: 2000 } : {};
+      const baseApiOptions = options.env ? { env: options.env } : {};
+      const limitedApiOptions = limited ? { ...baseApiOptions, maxBases: 1, maxProfiles: 1, maxAttempts: 1, timeoutMs: 2000 } : baseApiOptions;
 
       try {
           await logMedia('start', { hasToken: Boolean(media.accessToken), hasUserId: Boolean(media.userId), hasUsername: Boolean(media.username), limitedApiOptions });
@@ -166,18 +202,23 @@
               await logMedia('primary.error', { error: e.message || String(e), limited });
               if (limited) throw e;
               await logMedia('retry.login.start');
-              const login = await this.loginEmbyForMedia(server);
+              const login = await this.loginEmbyForMedia(server, baseApiOptions);
               token = login.accessToken;
               userId = login.userId || userId;
               clientProfile = login.clientProfile || clientProfile;
               await logMedia('retry.login.done', { hasToken: Boolean(token), hasUserId: Boolean(userId), clientProfile });
               await logMedia('retry.counts.request.start', { clientProfile });
-              counts = await this.fetchEmbyMediaCounts({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile });
+              counts = await this.fetchEmbyMediaCounts({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile, ...baseApiOptions });
               clientProfile = counts.clientProfile || clientProfile;
               await logMedia('retry.counts.request.done', { clientProfile, counts: { movie: counts.movie, series: counts.series, episode: counts.episode } });
           }
           const dailyStats = this.buildDailyMediaStats(media, counts, now);
           const previous = dailyStats.yesterdayCounts || media.previousCounts || null;
+          const remoteName = await this.fetchEmbyServerName({ ...server, mediaStats: { ...media, clientProfile } }, token, { clientProfile, ...limitedApiOptions });
+          if (remoteName) {
+              server.remoteName = remoteName;
+              if (this.shouldUseRemoteServerName(server, remoteName)) server.name = remoteName;
+          }
           server.mediaStats = {
               ...media, accessToken: token, userId, clientProfile, previousCounts: previous, counts, todayCounts: dailyStats.todayCounts, yesterdayCounts: dailyStats.yesterdayCounts, dailyDelta: dailyStats.dailyDelta, dailyKey: dailyStats.dailyKey,
               delta24h: previous ? { movie: counts.movie - previous.movie, series: counts.series - previous.series, episode: counts.episode - previous.episode, time: counts.time } : { movie: 0, series: 0, episode: 0, time: counts.time },
@@ -206,7 +247,8 @@
       let userId = media.userId || '';
       let clientProfile = media.clientProfile || '';
       const limited = Boolean(options.limited);
-      const limitedApiOptions = limited ? { maxBases: 1, maxProfiles: 1, maxAttempts: 1, maxEndpoints: 1, timeoutMs: 2000 } : {};
+      const baseApiOptions = options.env ? { env: options.env } : {};
+      const limitedApiOptions = limited ? { ...baseApiOptions, maxBases: 1, maxProfiles: 1, maxAttempts: 1, maxEndpoints: 3, timeoutMs: 10000 } : baseApiOptions;
       try {
           await logLastPlayed('start', { hasToken: Boolean(token), hasUserId: Boolean(userId), hasUsername: Boolean(media.username), clientProfile, limitedApiOptions });
           if (!token || !userId) {
@@ -220,7 +262,9 @@
           await logLastPlayed('request.start', { clientProfile });
           const result = await this.fetchEmbyLastPlayed({ ...server, mediaStats: { ...media, clientProfile } }, token, userId, { includeItem: true, clientProfile, ...limitedApiOptions });
           await logLastPlayed('request.done', { lastPlayedAt: Number(result.lastPlayedAt) || 0, itemName: result.item && result.item.name ? result.item.name : '', clientProfile: result.clientProfile || clientProfile });
-          const lastPlayedAt = Number(result.lastPlayedAt) || Number(media.lastPlayedAt) || 0;
+          const previousLastPlayedAt = Number(media.lastPlayedAt) || 0;
+          const resultLastPlayedAt = Number(result.lastPlayedAt) || 0;
+          const lastPlayedAt = Math.max(resultLastPlayedAt, previousLastPlayedAt);
           const nextKeepAlive = media.keepAlive ? { ...media.keepAlive } : media.keepAlive;
           if (nextKeepAlive && nextKeepAlive.enabled) {
               const previousPlayedAt = Number(nextKeepAlive.lastPlayedAt) || 0;
@@ -239,7 +283,7 @@
                       lastPlayedAt,
                       lastPlayedCheck: now,
                       lastPlayedError: '',
-                      lastPlayedItem: result.item || media.lastPlayedItem || null,
+                      lastPlayedItem: resultLastPlayedAt >= previousLastPlayedAt ? (result.item || media.lastPlayedItem || null) : (media.lastPlayedItem || result.item || null),
                       keepAlive: nextKeepAlive || media.keepAlive
                   }
               },
@@ -589,8 +633,12 @@
       let addressProbeResults = [];
 
       try {
-          const result = await this.probeEmbyServerWithFallbacks(s, limitedMedia ? { singleTarget: true, singlePath: true, timeoutMs: 2000 } : {});
+          const result = await this.probeEmbyServerWithFallbacks(s, limitedMedia ? { env: options.env, singleTarget: true, singlePath: true, timeoutMs: 2000 } : { env: options.env });
           isAlive = result.ok; finalLatency = result.latency; addressProbeResults = result.addressProbeResults || [];
+          if (result.serverName) {
+              s.remoteName = result.serverName;
+              if (this.shouldUseRemoteServerName(s, result.serverName)) s.name = result.serverName;
+          }
       } catch(e) { isAlive = false; }
       if (!isAlive && Boolean(options.verifyWithLogin)) {
           const loginState = await this.verifyWithLoginState(s);
@@ -636,6 +684,8 @@
       if (!probed) return latest;
       return {
           ...latest,
+          name: probed.name || latest.name,
+          remoteName: probed.remoteName || latest.remoteName || '',
           status: probed.status,
           totalChecks: probed.totalChecks,
           successfulChecks: probed.successfulChecks,
@@ -671,7 +721,7 @@
       await this.appendRuntimeLog(env, 'info', 'probe.single.start', '单体测速开始', { source: 'manual', requestId, forceMedia, refreshLastPlayed: Boolean(options.refreshLastPlayed), serverId: target.id, serverName: target.name }, { config: cleanConfig });
       try {
           await logStep('runtime.start', { limitedMedia: Boolean(options.refreshLastPlayed), hasMedia: Boolean(target.mediaStats && target.mediaStats.enabled) });
-          const probed = await this.probeServerRuntimeState(env, target, forceMedia, { limitedMedia: Boolean(options.refreshLastPlayed), requestId, flow: 'single', logConfig: cleanConfig });
+          const probed = await this.probeServerRuntimeState(env, target, forceMedia, { limitedMedia: Boolean(options.refreshLastPlayed) && !forceMedia, requestId, flow: 'single', logConfig: cleanConfig });
           await logStep('runtime.done', { status: probed.status, latency: probed.latency, failures: probed.consecutiveFailures || 0, addressCount: Array.isArray(probed.addressProbeResults) ? probed.addressProbeResults.length : 0 });
 
           await logStep('loadConfig.afterRuntime.start');
@@ -738,6 +788,8 @@
           const sameBeforeSaveConfig = this.hasSameProbeConfig(mergedServer, targetBeforeSave);
           const serverToSave = sameBeforeSaveConfig ? {
               ...targetBeforeSave,
+              name: mergedServer.name || targetBeforeSave.name,
+              remoteName: mergedServer.remoteName || targetBeforeSave.remoteName || '',
               status: mergedServer.status,
               totalChecks: mergedServer.totalChecks,
               successfulChecks: mergedServer.successfulChecks,

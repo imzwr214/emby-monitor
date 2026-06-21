@@ -67,6 +67,7 @@ const workerFiles = [
   'utils.js',
   'logs.js',
   'url-safety.js',
+  'egress-proxy.js',
   'emby-api.js',
   'probe.js'
 ];

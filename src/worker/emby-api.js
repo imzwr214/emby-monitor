@@ -46,6 +46,14 @@
 
   async readShortResponse(response) { try { return (await response.text()).slice(0, 160); } catch(e) { return ''; } },
 
+  parseEmbyDate(value) {
+      const text = String(value || '').trim();
+      if (!text) return 0;
+      const normalized = /(?:z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : text + 'Z';
+      const time = Date.parse(normalized);
+      return Number.isFinite(time) && time > 0 ? time : 0;
+  },
+
   getEmbyApiBases(server) {
       const target = this.normalizeServerUrl(server.url);
       if (!target) throw new Error('服务器地址无效');
@@ -53,6 +61,22 @@
       const bases = [base];
       if (!base.toLowerCase().endsWith('/emby')) bases.push(base + '/emby');
       return [...new Set(bases)];
+  },
+
+  async fetchEmbyServerName(server, token, options = {}) {
+      const maxBases = Math.max(1, Number(options.maxBases) || 2);
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 8000);
+      const bases = this.getEmbyApiBases(server).slice(0, maxBases);
+      const profile = this.getPreferredEmbyClientProfiles(server, options.clientProfile)[0];
+      for (const base of bases) {
+          try {
+              const response = await this.fetchWithTimeout(base + '/System/Info?api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile), env: options.env }, timeoutMs);
+              if (!response.ok) continue;
+              const name = this.extractEmbyServerName(await response.json());
+              if (name) return name;
+          } catch(e) {}
+      }
+      return '';
   },
 
   async loginEmbyForMedia(server, options = {}) {
@@ -81,7 +105,7 @@
               for (const [attemptIndex, attempt] of attempts.entries()) {
                   await logMedia('attempt.start', { base, profile: profile.id, attemptIndex: attemptIndex + 1, contentType: attempt.headers['Content-Type'] || 'application/json' });
                   try {
-                      const response = await this.fetchWithTimeout(base + '/Users/AuthenticateByName', { method: 'POST', headers: attempt.headers, body: attempt.body }, timeoutMs);
+                      const response = await this.fetchWithTimeout(base + '/Users/AuthenticateByName', { method: 'POST', headers: attempt.headers, body: attempt.body, env: options.env }, timeoutMs);
                       if (!response.ok) {
                           const detail = await this.readShortResponse(response);
                           lastError = response.status === 401 ? '媒体库账号或密码错误' : '媒体库登录失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
@@ -123,7 +147,7 @@
           for (const profile of this.getPreferredEmbyClientProfiles(server, options.clientProfile).slice(0, maxProfiles)) {
               await logMedia('profile.start', { base, profile: profile.id });
               try {
-                  const response = await this.fetchWithTimeout(base + '/Items/Counts?api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile) }, timeoutMs);
+                  const response = await this.fetchWithTimeout(base + '/Items/Counts?api_key=' + encodeURIComponent(token), { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile), env: options.env }, timeoutMs);
                   if (!response.ok) {
                       const detail = await this.readShortResponse(response);
                       lastError = response.status === 401 ? '媒体库 Token 失效' : '资源统计失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
@@ -156,13 +180,6 @@
       const debug = [];
       let successfulProfileId = String(options.clientProfile || (server.mediaStats && server.mediaStats.clientProfile) || '').trim();
 
-      const parseEmbyDate = (value) => {
-          const text = String(value || '').trim();
-          if (!text) return 0;
-          const normalized = /(?:z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : text + 'Z';
-          const time = Date.parse(normalized);
-          return Number.isFinite(time) && time > 0 ? time : 0;
-      };
       const extractPlayedAt = (item) => {
           if (!item) return 0;
           const candidates = [
@@ -170,7 +187,7 @@
               item.LastPlayedDate,
               item.DatePlayed
           ];
-          return Math.max(...candidates.map(parseEmbyDate));
+          return Math.max(...candidates.map((value) => this.parseEmbyDate(value)));
       };
       const collectLatestPlayedItem = (items, latestPlayedAt = 0, latestItem = null) => {
           let endpointLatestPlayedAt = 0;
@@ -227,9 +244,9 @@
           try {
               await logMedia('base.start', { base });
               const endpoints = [
-                  { label: 'all-items', path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery(baseItemsQuery), timeout: 8000 },
+                  { label: 'played-items', path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery({ ...baseItemsQuery, Filters: 'IsPlayed', Limit: '10' }), timeout: 8000 },
                   { label: 'resume', path: '/Users/' + encodeURIComponent(userId) + '/Items/Resume?' + buildQuery({ Limit: '50', Recursive: 'true', EnableUserData: 'true', Fields: 'UserData,DatePlayed,LastPlayedDate', IncludeItemTypes: 'Movie,Episode,Audio,MusicVideo,Video', api_key: token }), timeout: 5000 },
-                  { label: 'played-items', path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery({ ...baseItemsQuery, Filters: 'IsPlayed' }), timeout: 10000 }
+                  { label: 'all-items', path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery(baseItemsQuery), timeout: 12000 }
               ].slice(0, maxEndpoints);
 
               for (const endpoint of endpoints) {
@@ -237,7 +254,7 @@
                   for (const profile of this.getPreferredEmbyClientProfiles(server, successfulProfileId).slice(0, maxProfiles)) {
                       await logMedia('profile.start', { base, endpoint: endpoint.label, profile: profile.id });
                       try {
-                          const response = await this.fetchWithTimeout(base + endpoint.path, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile) }, timeoutMs || endpoint.timeout);
+                          const response = await this.fetchWithTimeout(base + endpoint.path, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile), env: options.env }, timeoutMs || endpoint.timeout);
                           if (!response.ok) {
                               const detail = await this.readShortResponse(response);
                               lastError = response.status === 401 ? '媒体库 Token 失效' : '最后播放时间读取失败 HTTP ' + response.status + (detail ? ' / ' + detail : '');
@@ -250,7 +267,7 @@
                           const responseText = await response.text();
                           const data = JSON.parse(responseText);
                           const items = data && Array.isArray(data.Items) ? data.Items : (Array.isArray(data) ? data : []);
-                          if (endpoint.label === 'all-items' && items[0] && !topCandidate) topCandidate = { base, profile, item: items[0] };
+                          if (items[0] && !topCandidate) topCandidate = { base, profile, item: items[0] };
                           const latest = collectLatestPlayedItem(items, latestPlayedAt, latestItem);
                           latestPlayedAt = latest.latestPlayedAt;
                           latestItem = latest.latestItem;
@@ -271,6 +288,24 @@
                                   responsePreview: responseText.slice(0, 500)
                               });
                           }
+                          if (items[0] && items[0].Id && endpoint.label !== 'all-items') {
+                              try {
+                                  await logMedia('candidateDetail.start', { base, endpoint: endpoint.label, profile: profile.id });
+                                  const detail = await this.fetchEmbyItemDetail(base, server, token, userId, items[0].Id, profile, options);
+                                  const detailPlayedAt = extractPlayedAt(detail);
+                                  if (detailPlayedAt > latestPlayedAt) {
+                                      latestPlayedAt = detailPlayedAt;
+                                      latestItem = this.normalizeLastPlayedItem(detail, detailPlayedAt);
+                                      successfulProfileId = profile.id;
+                                      await logMedia('candidateDetail.done', { base, endpoint: endpoint.label, detailPlayedAt });
+                                  } else {
+                                      await logMedia('candidateDetail.done', { base, endpoint: endpoint.label, detailPlayedAt });
+                                  }
+                              } catch(e) {
+                                  await logMedia('candidateDetail.error', { base, endpoint: endpoint.label, error: e.message || String(e) });
+                                  if (debugEnabled) debug.push({ endpoint: endpoint.label + '-candidate-detail', status: 0, ok: false, error: e.message || String(e) });
+                              }
+                          }
                           break;
                       } catch(e) {
                           lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
@@ -288,7 +323,7 @@
       if (topCandidate) {
           try {
               await logMedia('itemDetail.start', { base: topCandidate.base, profile: topCandidate.profile && topCandidate.profile.id ? topCandidate.profile.id : successfulProfileId });
-              const detail = await this.fetchEmbyItemDetail(topCandidate.base, server, token, userId, topCandidate.item.Id, topCandidate.profile);
+              const detail = await this.fetchEmbyItemDetail(topCandidate.base, server, token, userId, topCandidate.item.Id, topCandidate.profile, options);
               const detailPlayedAt = extractPlayedAt(detail);
               if (detailPlayedAt >= latestPlayedAt) {
                   latestPlayedAt = detailPlayedAt;
@@ -326,11 +361,11 @@
       };
   },
 
-  async fetchEmbyItemDetail(base, server, token, userId, itemId, profile) {
+  async fetchEmbyItemDetail(base, server, token, userId, itemId, profile, options = {}) {
       if (!itemId) throw new Error('缺少 ItemId');
       const query = 'Fields=' + encodeURIComponent('DatePlayed,UserData,LastPlayedDate') + '&api_key=' + encodeURIComponent(token);
       const path = '/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(itemId) + '?' + query;
-      const response = await this.fetchWithTimeout(base + path, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile) }, 8000);
+      const response = await this.fetchWithTimeout(base + path, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile), env: options.env }, 8000);
       if (!response.ok) throw new Error('条目详情读取失败 HTTP ' + response.status);
       return response.json();
   },

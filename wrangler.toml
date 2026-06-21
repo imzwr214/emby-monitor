@@ -3,9 +3,12 @@ main = "emby.js"
 compatibility_date = "2026-05-16"
 workers_dev = true
 
+[placement]
+region = "aws:ap-southeast-1"
+
 [triggers]
 crons = ["*/5 * * * *"]
 
 [[kv_namespaces]]
 binding = "EMBY_DB"
-id = "1f1c651cf9a44f0dbe211df04e29f564"
+id = "cea5e738f0ef4600a2e7c1f357e417e1"

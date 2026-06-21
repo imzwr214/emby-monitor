@@ -720,7 +720,7 @@ const App = () => {
             if (!normalized || seen.has(key)) continue;
             seen.add(key);
             clean.push(normalized);
-            if (clean.length >= 4) break;
+            if (clean.length >= 8) break;
         }
         return clean;
     };
@@ -730,7 +730,7 @@ const App = () => {
     };
 
     const addFallbackUrl = () => {
-        setFallbackUrls((current) => current.length >= 4 ? current : current.concat(''));
+        setFallbackUrls((current) => current.length >= 8 ? current : current.concat(''));
     };
 
     const removeFallbackUrl = (index) => {
@@ -755,7 +755,7 @@ const App = () => {
         return '';
     };
 
-    const parseQuickImportText = (value) => {
+    const parseQuickImportTextLegacy = (value) => {
         const text = String(value || '');
         const lines = text.split(/\r?\n/);
         const urlMatch = text.match(/https?:\/\/[^\s"'<>，。；、）)】]+/i);
@@ -767,20 +767,98 @@ const App = () => {
         };
     };
 
+    const normalizeQuickImportSecret = (value) => {
+        const text = String(value || '').trim();
+        return /^(空|无|沒有|没有|none|null|nil|n\/a|no|empty)$/i.test(text) ? '' : text;
+    };
+
+    const cleanQuickImportLabel = (value) => {
+        return String(value || '')
+            .replace(/^[\s▎·•*_\-|↓↑]+/, '')
+            .replace(/[：:]\s*$/, '')
+            .trim()
+            .slice(0, 80);
+    };
+
+    const normalizeQuickImportUrlWithPort = (rawUrl, portValue) => {
+        try {
+            const parsed = new URL(rawUrl);
+            const port = cleanPortInput(String(portValue || ''));
+            if (port && !parsed.port) parsed.port = port;
+            parsed.hash = '';
+            const normalized = parsed.toString();
+            return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+        } catch(e) {
+            return rawUrl;
+        }
+    };
+
+    const extractQuickImportUrls = (lines) => {
+        const results = [];
+        const urlPattern = /https?:\/\/[^\s"'<>，。；、）)】\]]+/ig;
+        for (let index = 0; index < lines.length; index += 1) {
+            const line = String(lines[index] || '');
+            const matches = [...line.matchAll(urlPattern)];
+            for (const match of matches) {
+                const rawUrl = match[0].replace(/[.,;，。；]+$/, '');
+                const afterUrl = line.slice(match.index + match[0].length);
+                const sameLinePort = (afterUrl.match(/(?:\u7aef\u53e3|port)\s*[\uff1a:|\-]?\s*(\d{1,5})/i) || afterUrl.match(/^\s+(\d{1,5})(?:\s|$)/) || [])[1] || '';
+                const nextLine = String(lines[index + 1] || '');
+                const nextLinePort = (/^\s*(?:\u7aef\u53e3|port)\s*[\uff1a:|\-]?\s*(\d{1,5})\s*$/i.exec(nextLine) || [])[1] || '';
+                const port = sameLinePort || nextLinePort;
+                const label = cleanQuickImportLabel(line.slice(0, match.index));
+                results.push({ url: normalizeQuickImportUrlWithPort(rawUrl, port), label });
+            }
+        }
+        return results;
+    };
+
+    const extractQuickImportPassword = (text, lines) => {
+        for (const line of lines) {
+            const clean = String(line || '').trim();
+            if (!clean || !(/password|pass/i.test(clean) || clean.includes('\u5bc6\u7801'))) continue;
+            const colonIndex = Math.max(clean.lastIndexOf(':'), clean.lastIndexOf('\uff1a'));
+            if (colonIndex >= 0) {
+                return { value: normalizeQuickImportSecret(clean.slice(colonIndex + 1)), found: true };
+            }
+        }
+        const directMatch = String(text || '').match(/(?:password|pass)\s*[:|\-]?\s*([^\r\n]+)/i);
+        if (directMatch && directMatch[1] !== undefined) return { value: normalizeQuickImportSecret(directMatch[1]), found: true };
+        return { value: '', found: false };
+    };
+
+    const parseQuickImportText = (value) => {
+        const text = String(value || '');
+        const lines = text.split(/\r?\n/);
+        const urls = extractQuickImportUrls(lines);
+        const username = extractFieldFromText(lines, ['用户名', '用户名称', '账号', '账户', 'user name', 'username', 'user'], /安全密码|到期|线路|服务器/i);
+        const parsedPassword = extractQuickImportPassword(text, lines);
+        const hasPasswordField = parsedPassword.found;
+        return {
+            username,
+            password: parsedPassword.value,
+            hasPasswordField,
+            url: urls[0] ? urls[0].url : '',
+            name: urls[0] ? urls[0].label : '',
+            fallbackUrls: urls.slice(1).map((item) => item.url).slice(0, 8)
+        };
+    };
+
     const applyQuickImportText = () => {
         const value = quickImportText.trim();
         if (!value) return showNotice('请先粘贴包含服务器、用户名或密码的信息');
         const parsed = parseQuickImportText(value);
-        const hasRecognizedField = Boolean(parsed.url || parsed.username || parsed.password);
+        const hasRecognizedField = Boolean(parsed.url || parsed.username || parsed.hasPasswordField);
         if (!hasRecognizedField) return showNotice('没有识别到服务器地址、用户名或密码');
         if (parsed.url) {
             const parsedUrl = splitServerUrl(parsed.url);
-            setAddForm((current) => ({ ...current, name: current.name || parsed.username || parsedUrl.host, protocol: parsedUrl.protocol, host: parsedUrl.host, port: parsedUrl.port }));
+            setAddForm((current) => ({ ...current, name: current.name || parsedUrl.host, protocol: parsedUrl.protocol, host: parsedUrl.host, port: parsedUrl.port }));
+            setFallbackUrls(parsed.fallbackUrls || []);
         } else if (parsed.username) {
             setAddForm((current) => ({ ...current, name: current.name || parsed.username }));
         }
-        if (parsed.username || parsed.password) {
-            setMediaForm((current) => ({ ...current, enabled: true, username: parsed.username || current.username, password: parsed.password || current.password }));
+        if (parsed.url || parsed.username || parsed.hasPasswordField) {
+            setMediaForm((current) => ({ ...current, enabled: true, username: parsed.username || current.username || 'imzwr', password: parsed.hasPasswordField ? parsed.password : current.password }));
         }
     };
 
@@ -2136,7 +2214,7 @@ const App = () => {
                                     <button
                                         type="button"
                                         onClick={addFallbackUrl}
-                                        disabled={fallbackUrls.length >= 4}
+                                        disabled={fallbackUrls.length >= 8}
                                         className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed border border-emerald-100 hover:bg-emerald-100 text-[11px] font-black transition-colors"
                                     >
                                         添加
