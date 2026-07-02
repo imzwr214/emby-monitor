@@ -41,7 +41,7 @@
 
     if (request.method === 'GET' && /^\/public\/[a-f0-9]{24}$/i.test(url.pathname)) {
       if (this.shouldBlockPublicShareAccess(request)) {
-        return new Response('海外敏感内容，大陆ip禁止访问', { status: 403, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+        return new Response('Forbidden', { status: 403, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
       }
       const token = url.pathname.split('/').pop();
       const tokenRecord = await this.getPublicShareToken(env, token);
@@ -336,6 +336,59 @@
       }
     }
 
+    if (url.pathname === '/api/media/mark-played' && request.method === 'POST') {
+      const auth = this.requireAdmin(request, env);
+      if (auth) return auth;
+
+      const body = await request.json().catch(() => ({}));
+      const serverId = String(body.serverId || '');
+      if (!serverId) return this.json({ ok: false, error: 'Missing serverId' }, 400);
+      try {
+        const config = this.sanitizeConfig(await this.loadConfig(env));
+        const now = Date.now();
+        let savedServer = null;
+        const nextServers = config.servers.map((server) => {
+          if (String(server.id) !== serverId) return server;
+          const media = server.mediaStats || {};
+          if (!media.enabled) throw new Error('该服务器未启用媒体库统计，无法标记保号播放');
+          const keepAlive = media.keepAlive || {};
+          const nextKeepAlive = {
+            ...keepAlive,
+            lastPlayedAt: now,
+            lastCheckedAt: now,
+            alertSentAt: 0
+          };
+          const nextServer = {
+            ...server,
+            mediaStats: {
+              ...media,
+              lastPlayedAt: now,
+              lastPlayedCheck: now,
+              lastPlayedError: '',
+              lastPlayedItem: {
+                id: 'manual-keepalive',
+                name: '手动标记已播放',
+                type: 'Manual',
+                playedAt: now
+              },
+              keepAlive: nextKeepAlive
+            }
+          };
+          savedServer = nextServer;
+          return nextServer;
+        });
+        if (!savedServer) return this.json({ ok: false, error: 'Server not found' }, 404);
+        const savedConfig = await this.saveConfig(env, { ...config, updatedAt: now, servers: nextServers });
+        const responseServer = savedConfig.servers.find((server) => String(server.id) === serverId) || savedServer;
+        await this.appendRuntimeLog(env, 'info', 'media.keepAlive.manualMark', '手动标记保号播放成功', { serverId, serverName: responseServer.name || '', markedAt: now }, { config: savedConfig }).catch(() => {});
+        return this.json({ ok: true, ...savedConfig, server: responseServer, notifyEnabled: this.isTelegramEnabled(env, savedConfig) });
+      } catch(e) {
+        const message = e && e.message ? e.message : String(e || '手动标记失败');
+        await this.appendRuntimeLog(env, 'error', 'media.keepAlive.manualMark.error', '手动标记保号播放失败', { serverId, error: message }).catch(() => {});
+        return this.json({ ok: false, error: message }, 500);
+      }
+    }
+
     if (url.pathname === '/api/update/check' && request.method === 'GET') {
       const auth = this.requireStrictAdmin(request, env);
       if (auth) return auth;
@@ -455,20 +508,20 @@
               if (!statusUpdated.hasMore) break;
               if (Date.now() - scheduledStartedAt >= scheduledWallLimitMs) break;
           }
-          if (env && env.RUNTIME_ENV === 'docker') {
-              const mediaUpdated = await this.refreshAllLastPlayedIfRequested(statusUpdated, { source: 'scheduled', env, scheduledTime });
-              statusUpdated = await this.saveConfig(env, mediaUpdated, { skipHistoryNormalization: true });
-              const enabledMediaServers = Array.isArray(statusUpdated.servers) ? statusUpdated.servers.filter((server) => server && server.mediaStats && server.mediaStats.enabled) : [];
-              const growthReady = enabledMediaServers.length > 0 && enabledMediaServers.every((server) => server.mediaStats && server.mediaStats.dailyKey === growthDayKey);
-              const growthNotified = String(statusUpdated.growthLeaderboardNotifiedDayKey || '') === growthDayKey;
-              if (growthReady && !growthNotified) {
-                  const growthRows = this.getGrowthLeaderboardRows(statusUpdated, 5);
-                  if (growthRows.length) {
-                      const sent = await this.sendTelegram(env, this.buildGrowthLeaderboardMessage(growthRows, growthDayKey), statusUpdated);
-                      if (sent) {
-                          statusUpdated = await this.saveConfig(env, { ...statusUpdated, growthLeaderboardNotifiedDayKey: growthDayKey }, { skipHistoryNormalization: true });
-                          await this.appendRuntimeLog(env, 'info', 'growth.leaderboard.notify', '每日资源增长榜单通知已发送', { dayKey: growthDayKey, topCount: growthRows.length }, { config: statusUpdated }).catch(() => {});
-                      }
+
+          const mediaUpdated = await this.refreshAllLastPlayedIfRequested(statusUpdated, { source: 'scheduled', env, scheduledTime });
+          statusUpdated = await this.saveConfig(env, mediaUpdated, { skipHistoryNormalization: true });
+
+          const enabledMediaServers = Array.isArray(statusUpdated.servers) ? statusUpdated.servers.filter((server) => server && server.mediaStats && server.mediaStats.enabled) : [];
+          const growthReady = enabledMediaServers.length > 0 && enabledMediaServers.every((server) => server.mediaStats && server.mediaStats.dailyKey === growthDayKey);
+          const growthNotified = String(statusUpdated.growthLeaderboardNotifiedDayKey || '') === growthDayKey;
+          if (growthReady && !growthNotified) {
+              const growthRows = this.getGrowthLeaderboardRows(statusUpdated, 5);
+              if (growthRows.length) {
+                  const sent = await this.sendTelegram(env, this.buildGrowthLeaderboardMessage(growthRows, growthDayKey), statusUpdated);
+                  if (sent) {
+                      statusUpdated = await this.saveConfig(env, { ...statusUpdated, growthLeaderboardNotifiedDayKey: growthDayKey }, { skipHistoryNormalization: true });
+                      await this.appendRuntimeLog(env, 'info', 'growth.leaderboard.notify', '每日资源增长榜单通知已发送', { dayKey: growthDayKey, topCount: growthRows.length }, { config: statusUpdated }).catch(() => {});
                   }
               }
           }
