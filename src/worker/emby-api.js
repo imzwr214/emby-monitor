@@ -91,6 +91,80 @@
       return '';
   },
 
+  isPlaybackActivityEntry(entry) {
+      if (!entry || typeof entry !== 'object') return false;
+      const type = String(entry.Type || '');
+      const text = [entry.Name, entry.Overview, entry.ShortOverview].map((value) => String(value || '')).join(' ');
+      if (/Playback/i.test(type)) return true;
+      return /\b(is|started|stopped|finished)\s+play/i.test(text) || /播放/.test(text);
+  },
+
+  isActivityEntryForUser(entry, userId, username) {
+      const entryUserId = String(entry && entry.UserId !== undefined ? entry.UserId : '').trim();
+      const expectedUserId = String(userId || '').trim();
+      if (entryUserId && expectedUserId && entryUserId === expectedUserId) return true;
+      const name = String(username || '').trim().toLowerCase();
+      if (!name) return !entryUserId;
+      const text = [entry.Name, entry.Overview, entry.ShortOverview].map((value) => String(value || '').toLowerCase()).join(' ');
+      return text.includes(name);
+  },
+
+  normalizeActivityPlayedItem(entry, playedAt) {
+      if (!entry || typeof entry !== 'object') return null;
+      return {
+          id: String(entry.ItemId || entry.Id || ''),
+          name: String(entry.ItemName || entry.Name || ''),
+          type: String(entry.ItemType || entry.Type || 'activity'),
+          seriesName: String(entry.SeriesName || ''),
+          seasonName: String(entry.SeasonName || ''),
+          indexNumber: Number.isFinite(Number(entry.ItemIndex)) ? Number(entry.ItemIndex) : null,
+          playedPercentage: null,
+          playedAt: Number(playedAt) || 0
+      };
+  },
+
+  async fetchEmbyActivityLastPlayed(server, token, userId, options = {}) {
+      const maxBases = Math.max(1, Number(options.maxBases) || 10);
+      const maxProfiles = Math.max(1, Number(options.maxProfiles) || 10);
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 8000);
+      const limit = Math.min(Math.max(20, Number(options.limit) || 100), 200);
+      const bases = this.getEmbyApiBases(server).slice(0, maxBases);
+      const username = server.mediaStats && server.mediaStats.username ? server.mediaStats.username : '';
+      const buildQuery = (params) => Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(value)).join('&');
+      let lastError = '播放日志读取失败';
+      for (const base of bases) {
+          for (const profile of this.getPreferredEmbyClientProfiles(server, options.clientProfile).slice(0, maxProfiles)) {
+              try {
+                  const query = buildQuery({ StartIndex: '0', Limit: String(limit), hasUserId: 'true', api_key: token });
+                  const response = await this.fetchWithTimeout(base + '/System/ActivityLog/Entries?' + query, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile), env: options.env }, timeoutMs);
+                  if (!response.ok) {
+                      lastError = '播放日志读取失败 HTTP ' + response.status;
+                      continue;
+                  }
+                  const data = await response.json();
+                  const items = data && Array.isArray(data.Items) ? data.Items : (Array.isArray(data) ? data : []);
+                  let latestPlayedAt = 0;
+                  let latestItem = null;
+                  for (const entry of items) {
+                      if (!this.isPlaybackActivityEntry(entry)) continue;
+                      if (!this.isActivityEntryForUser(entry, userId, username)) continue;
+                      const playedAt = this.parseEmbyDate(entry.Date || entry.TimeStamp || entry.Timestamp || entry.CreatedAt);
+                      if (playedAt > latestPlayedAt) {
+                          latestPlayedAt = playedAt;
+                          latestItem = this.normalizeActivityPlayedItem(entry, playedAt);
+                      }
+                  }
+                  if (latestPlayedAt) return { lastPlayedAt: latestPlayedAt, item: latestItem, clientProfile: profile.id };
+                  lastError = '播放日志里没有匹配当前用户的播放事件';
+              } catch(e) {
+                  lastError = e.name === 'AbortError' ? '播放日志读取超时' : (e.message || '播放日志读取失败');
+              }
+          }
+      }
+      const error = new Error(lastError);
+      throw error;
+  },
+
   async loginEmbyForMedia(server, options = {}) {
       const media = server.mediaStats || {};
       if (!media.username) throw new Error('缺少媒体库用户名');
@@ -360,6 +434,19 @@
               await logMedia('itemDetail.error', { error: e.message || String(e) });
               if (debugEnabled) debug.push({ endpoint: 'item-detail', status: 0, ok: false, error: e.message || String(e) });
           }
+      }
+      try {
+          await logMedia('activity.start');
+          const activity = await this.fetchEmbyActivityLastPlayed(server, token, userId, { clientProfile: successfulProfileId, maxBases, maxProfiles, timeoutMs, env: options.env });
+          if (activity && Number(activity.lastPlayedAt) > latestPlayedAt) {
+              latestPlayedAt = Number(activity.lastPlayedAt) || latestPlayedAt;
+              latestItem = activity.item || latestItem;
+              successfulProfileId = activity.clientProfile || successfulProfileId;
+          }
+          await logMedia('activity.done', { activityLastPlayedAt: activity && Number(activity.lastPlayedAt) || 0, latestPlayedAt });
+      } catch(e) {
+          await logMedia('activity.skip', { error: e.message || String(e) });
+          if (debugEnabled) debug.push({ endpoint: 'activity-log', status: 0, ok: false, error: e.message || String(e) });
       }
       if (latestPlayedAt) {
           await logMedia('done', { lastPlayedAt: latestPlayedAt, hasItem: Boolean(latestItem), clientProfile: successfulProfileId, source: latestItem && latestItem.source ? latestItem.source : '' });
