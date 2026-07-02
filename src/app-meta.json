@@ -1,12 +1,12 @@
 {
-  "version": "2026.07.02.1",
+  "version": "2026.07.02.2",
   "updateChannels": {
-    "worker": "2026.07.02.1",
-    "docker": "2026.07.02.1"
+    "worker": "2026.07.02.2",
+    "docker": "2026.07.02.2"
   },
   "updateNotes": [
-    "修复 Cloudflare Worker 定时任务不刷新上次播放与保号提醒的问题。",
-    "新增 EmbyBoss 兼容兜底接口，可手动标记节点已播放并重置保号提醒状态。",
-    "Cron 默认调整为每分钟执行，减少保号状态刷新延迟。"
+    "优化 EmbyBoss 最后播放时间读取：自动尝试 Playback Reporting 插件播放记录。",
+    "最后播放读取新增用户 LastActivityDate 兜底，避免只看已标记看完条目导致日期卡住。",
+    "保留标准 Emby LastPlayedDate 读取逻辑，并优先采用更新的播放记录来源。"
   ]
 }
