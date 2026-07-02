@@ -1,11 +1,12 @@
 {
-  "version": "2026.05.31.2",
+  "version": "2026.07.02.1",
   "updateChannels": {
-    "worker": "2026.05.31.2",
-    "docker": "2026.05.31.2"
+    "worker": "2026.07.02.1",
+    "docker": "2026.07.02.1"
   },
   "updateNotes": [
-    "修复 Docker 自更新对 Docker 1.44+ 的兼容问题，不再写死 1.43 API 版本。",
-    "更新 helper 现在会自动读取 Docker daemon 的实际 API 版本，避免点更新后只提示成功但实际未替换容器。"
+    "修复 Cloudflare Worker 定时任务不刷新上次播放与保号提醒的问题。",
+    "新增 EmbyBoss 兼容兜底接口，可手动标记节点已播放并重置保号提醒状态。",
+    "Cron 默认调整为每分钟执行，减少保号状态刷新延迟。"
   ]
 }
