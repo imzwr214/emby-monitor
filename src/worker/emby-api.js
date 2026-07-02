@@ -54,6 +54,18 @@
       return Number.isFinite(time) && time > 0 ? time : 0;
   },
 
+  parsePlaybackReportDate(dateValue, timeValue = '') {
+      const dateText = String(dateValue || '').trim();
+      const timeText = String(timeValue || '').trim();
+      if (!dateText) return 0;
+      const combined = timeText ? (dateText + 'T' + timeText) : dateText;
+      return this.parseEmbyDate(combined);
+  },
+
+  normalizeEmbyUserId(value) {
+      return String(value || '').replace(/-/g, '').trim().toLowerCase();
+  },
+
   getEmbyApiBases(server) {
       const target = this.normalizeServerUrl(server.url);
       if (!target) throw new Error('服务器地址无效');
@@ -171,7 +183,7 @@
       if (!userId) throw new Error('未获取到媒体库 UserId');
       const maxBases = Math.max(1, Number(options.maxBases) || 10);
       const maxProfiles = Math.max(1, Number(options.maxProfiles) || 10);
-      const maxEndpoints = Math.max(1, Number(options.maxEndpoints) || 3);
+      const maxEndpoints = Math.max(1, Number(options.maxEndpoints) || 5);
       const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 0);
       const bases = this.getEmbyApiBases(server).slice(0, maxBases);
       let lastError = '最后播放时间读取失败';
@@ -185,7 +197,10 @@
           const candidates = [
               item.UserData && item.UserData.LastPlayedDate,
               item.LastPlayedDate,
-              item.DatePlayed
+              item.DatePlayed,
+              item.LastActivityDate,
+              item.DateLastActivity,
+              item.LatestDate
           ];
           return Math.max(...candidates.map((value) => this.parseEmbyDate(value)));
       };
@@ -208,13 +223,14 @@
       const buildDebugSample = (item) => {
           if (!item || typeof item !== 'object') return null;
           return {
-              id: item.Id || '',
-              name: item.Name || '',
-              type: item.Type || '',
+              id: item.Id || item.item_id || '',
+              name: item.Name || item.item_name || '',
+              type: item.Type || item.item_type || '',
               userDataLastPlayedDate: item.UserData && item.UserData.LastPlayedDate ? item.UserData.LastPlayedDate : '',
               userDataPlayed: item.UserData && item.UserData.Played !== undefined ? Boolean(item.UserData.Played) : null,
               lastPlayedDate: item.LastPlayedDate || '',
               datePlayed: item.DatePlayed || '',
+              lastActivityDate: item.LastActivityDate || '',
               parsedPlayedAt: extractPlayedAt(item),
               keys: Object.keys(item).slice(0, 20)
           };
@@ -246,6 +262,8 @@
               const endpoints = [
                   { label: 'played-items', path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery({ ...baseItemsQuery, Filters: 'IsPlayed', Limit: '10' }), timeout: 8000 },
                   { label: 'resume', path: '/Users/' + encodeURIComponent(userId) + '/Items/Resume?' + buildQuery({ Limit: '50', Recursive: 'true', EnableUserData: 'true', Fields: 'UserData,DatePlayed,LastPlayedDate', IncludeItemTypes: 'Movie,Episode,Audio,MusicVideo,Video', api_key: token }), timeout: 5000 },
+                  { label: 'latest-items', path: '/Users/' + encodeURIComponent(userId) + '/Items/Latest?' + buildQuery({ Limit: '50', Fields: 'UserData,DatePlayed,LastPlayedDate', IncludeItemTypes: 'Movie,Episode,Audio,MusicVideo,Video', api_key: token }), timeout: 8000 },
+                  { label: 'user-profile', path: '/Users/' + encodeURIComponent(userId) + '?' + buildQuery({ api_key: token }), timeout: 5000 },
                   { label: 'all-items', path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery(baseItemsQuery), timeout: 12000 }
               ].slice(0, maxEndpoints);
 
@@ -266,8 +284,8 @@
                           successfulProfileId = profile.id;
                           const responseText = await response.text();
                           const data = JSON.parse(responseText);
-                          const items = data && Array.isArray(data.Items) ? data.Items : (Array.isArray(data) ? data : []);
-                          if (items[0] && !topCandidate) topCandidate = { base, profile, item: items[0] };
+                          const items = endpoint.label === 'user-profile' ? [data] : (data && Array.isArray(data.Items) ? data.Items : (Array.isArray(data) ? data : []));
+                          if (items[0] && !topCandidate && endpoint.label !== 'user-profile') topCandidate = { base, profile, item: items[0] };
                           const latest = collectLatestPlayedItem(items, latestPlayedAt, latestItem);
                           latestPlayedAt = latest.latestPlayedAt;
                           latestItem = latest.latestItem;
@@ -288,7 +306,7 @@
                                   responsePreview: responseText.slice(0, 500)
                               });
                           }
-                          if (items[0] && items[0].Id && endpoint.label !== 'all-items') {
+                          if (items[0] && items[0].Id && endpoint.label !== 'all-items' && endpoint.label !== 'user-profile') {
                               try {
                                   await logMedia('candidateDetail.start', { base, endpoint: endpoint.label, profile: profile.id });
                                   const detail = await this.fetchEmbyItemDetail(base, server, token, userId, items[0].Id, profile, options);
@@ -315,6 +333,13 @@
                   }
               }
 
+              const playbackReport = await this.fetchPlaybackReportingLastPlayed(base, server, token, userId, { ...options, clientProfile: successfulProfileId, logMedia, debugEnabled });
+              if (playbackReport && playbackReport.lastPlayedAt > latestPlayedAt) {
+                  latestPlayedAt = playbackReport.lastPlayedAt;
+                  latestItem = playbackReport.item;
+                  successfulProfileId = playbackReport.clientProfile || successfulProfileId;
+              }
+              if (playbackReport && debugEnabled) debug.push(playbackReport.debug);
           } catch(e) {
               lastError = e.name === 'AbortError' ? '最后播放时间读取超时' : (e.message || '最后播放时间读取失败');
               await logMedia('base.error', { base, error: lastError });
@@ -337,7 +362,7 @@
           }
       }
       if (latestPlayedAt) {
-          await logMedia('done', { lastPlayedAt: latestPlayedAt, hasItem: Boolean(latestItem), clientProfile: successfulProfileId });
+          await logMedia('done', { lastPlayedAt: latestPlayedAt, hasItem: Boolean(latestItem), clientProfile: successfulProfileId, source: latestItem && latestItem.source ? latestItem.source : '' });
           return includeItem ? { lastPlayedAt: latestPlayedAt, item: latestItem, clientProfile: successfulProfileId, debug } : latestPlayedAt;
       }
       const error = new Error(lastError);
@@ -346,18 +371,74 @@
       throw error;
   },
 
+  async fetchPlaybackReportingLastPlayed(base, server, token, userId, options = {}) {
+      const cleanUserId = this.normalizeEmbyUserId(userId);
+      if (!cleanUserId) return null;
+      const profile = this.getPreferredEmbyClientProfiles(server, options.clientProfile)[0];
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 8000);
+      const logMedia = typeof options.logMedia === 'function' ? options.logMedia : async () => {};
+      const query = new URLSearchParams({ user_id: cleanUserId, aggregate_data: 'false', days: String(Math.max(7, Number(options.playbackReportDays) || 90)), filter: 'Movie,Episode,Audio,MusicVideo,Video', api_key: token });
+      const endpoints = [
+          { label: 'playback-report-playlist', path: '/user_usage_stats/UserPlaylist?' + query.toString() },
+          { label: 'playback-report-user-activity', path: '/user_usage_stats/user_activity?' + new URLSearchParams({ days: String(Math.max(7, Number(options.playbackReportDays) || 90)), api_key: token }).toString() }
+      ];
+      let best = null;
+      for (const endpoint of endpoints) {
+          await logMedia(endpoint.label + '.start', { base, userId: cleanUserId });
+          try {
+              const response = await this.fetchWithTimeout(base + endpoint.path, { method: 'GET', headers: this.buildEmbyClientHeaders(server, token, profile), env: options.env }, timeoutMs);
+              if (!response.ok) {
+                  const detail = await this.readShortResponse(response);
+                  await logMedia(endpoint.label + '.httpError', { base, status: response.status, responsePreview: detail });
+                  continue;
+              }
+              const text = await response.text();
+              const data = JSON.parse(text);
+              const rows = Array.isArray(data) ? data : (data && Array.isArray(data.Items) ? data.Items : []);
+              for (const row of rows) {
+                  const rowUserId = this.normalizeEmbyUserId(row.user_id || row.UserId || row.userId || '');
+                  if (rowUserId && rowUserId !== cleanUserId) continue;
+                  const playedAt = endpoint.label === 'playback-report-user-activity'
+                      ? this.parseEmbyDate(row.latest_date || row.LatestDate || row.date || row.Date || '')
+                      : this.parsePlaybackReportDate(row.date || row.PlayDate || row.DateCreated || '', row.time || row.PlayTime || '');
+                  if (!playedAt || (best && playedAt <= best.lastPlayedAt)) continue;
+                  best = {
+                      lastPlayedAt: playedAt,
+                      clientProfile: profile.id,
+                      item: {
+                          id: String(row.item_id || row.itemId || row.item_id || row.ItemId || ''),
+                          name: String(row.item_name || row.itemName || row.item_name || row.ItemName || row.item_name || ''),
+                          type: String(row.item_type || row.itemType || row.ItemType || ''),
+                          seriesName: '',
+                          seasonName: '',
+                          indexNumber: null,
+                          playedPercentage: null,
+                          playedAt,
+                          source: endpoint.label
+                      }
+                  };
+              }
+              await logMedia(endpoint.label + '.done', { base, rowCount: rows.length, latestPlayedAt: best ? best.lastPlayedAt : 0 });
+          } catch(e) {
+              await logMedia(endpoint.label + '.error', { base, error: e.message || String(e) });
+          }
+      }
+      return best ? { ...best, debug: { endpoint: 'playback-reporting', ok: true, latestParsedAt: best.lastPlayedAt, latestItem: best.item } } : null;
+  },
+
   normalizeLastPlayedItem(item, playedAt = 0) {
       if (!item || typeof item !== 'object') return null;
       const userData = item.UserData || {};
       return {
-          id: String(item.Id || ''),
-          name: String(item.Name || ''),
-          type: String(item.Type || ''),
+          id: String(item.Id || item.id || ''),
+          name: String(item.Name || item.Name || item.UserName || item.Name || ''),
+          type: String(item.Type || item.type || 'UserActivity'),
           seriesName: String(item.SeriesName || ''),
           seasonName: String(item.SeasonName || ''),
           indexNumber: Number.isFinite(Number(item.IndexNumber)) ? Number(item.IndexNumber) : null,
           playedPercentage: Number.isFinite(Number(userData.PlayedPercentage)) ? Number(userData.PlayedPercentage) : null,
-          playedAt: Number(playedAt) || 0
+          playedAt: Number(playedAt) || 0,
+          source: item.LastActivityDate || item.DateLastActivity ? 'user-activity' : 'emby-userdata'
       };
   },
 
