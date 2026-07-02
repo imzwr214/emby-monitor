@@ -7,7 +7,7 @@ workers_dev = true
 region = "aws:ap-southeast-1"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/1 * * * *"]
 
 [[kv_namespaces]]
 binding = "EMBY_DB"
