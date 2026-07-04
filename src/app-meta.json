@@ -1,12 +1,12 @@
 {
-  "version": "2026.07.02.2",
+  "version": "2026.07.04.1",
   "updateChannels": {
-    "worker": "2026.07.02.2",
-    "docker": "2026.07.02.2"
+    "worker": "2026.07.04.1",
+    "docker": "2026.07.04.1"
   },
   "updateNotes": [
-    "优化 EmbyBoss 最后播放时间读取：自动尝试 Playback Reporting 插件播放记录。",
-    "最后播放读取新增用户 LastActivityDate 兜底，避免只看已标记看完条目导致日期卡住。",
-    "保留标准 Emby LastPlayedDate 读取逻辑，并优先采用更新的播放记录来源。"
+    "新增 User Usage Stats 播放记录来源，提高 EmbyBoss 类服务器最后播放时间准确性。",
+    "优化保号账号登录文案，明确使用 AccessToken/UserId 而非 API Key。",
+    "保留现有标准 Emby /Items、Playback Reporting 和 ActivityLog 兜底。"
   ]
 }

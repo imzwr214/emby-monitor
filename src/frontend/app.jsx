@@ -530,6 +530,13 @@ const App = () => {
         if (!time) return '未知';
         return new Date(time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
     };
+    const getLastPlayedSourceLabel = (source) => ({
+        'user-usage-stats': '播放记录',
+        'playback-reporting': '插件记录',
+        'emby-userdata': 'Emby 记录',
+        'user-activity': '活动记录',
+        'activity-log': '活动日志'
+    }[String(source || '')] || '');
     const formatShareExpires = (value) => {
         const time = Number(value) || 0;
         return time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '永久有效';
@@ -935,8 +942,13 @@ const App = () => {
                 deviceId: previousMedia.deviceId || ('forward-' + Date.now().toString(36)),
                 accessToken: mediaForm.enabled && !credentialsChanged ? (previousMedia.accessToken || '') : '',
                 userId: mediaForm.enabled && !credentialsChanged ? (previousMedia.userId || '') : '',
+                clientProfile: mediaForm.enabled && !credentialsChanged ? (previousMedia.clientProfile || '') : '',
                 lastCheck: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastCheck || 0) : 0,
                 lastError: '', counts: mediaForm.enabled && !credentialsChanged ? (previousMedia.counts || null) : null,
+                lastPlayedAt: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayedAt || 0) : 0,
+                lastPlayedCheck: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayedCheck || 0) : 0,
+                lastPlayedError: '',
+                lastPlayedItem: mediaForm.enabled && !credentialsChanged ? (previousMedia.lastPlayedItem || null) : null,
                 previousCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.previousCounts || null) : null,
                 delta24h: mediaForm.enabled && !credentialsChanged ? (previousMedia.delta24h || null) : null,
                 todayCounts: mediaForm.enabled && !credentialsChanged ? (previousMedia.todayCounts || null) : null,
@@ -1579,7 +1591,11 @@ const App = () => {
                             const stats = getAvailabilityStats(s);
                             const keepAliveButton = getKeepAliveButtonState(s);
                             const lastPlayedAt = s.mediaStats && s.mediaStats.enabled ? Number(s.mediaStats.lastPlayedAt) || 0 : 0;
-                            const lastPlayedText = lastPlayedAt ? formatLastPlayedTime(lastPlayedAt) : (s.mediaStats && s.mediaStats.enabled && s.mediaStats.lastPlayedError ? '读取失败' : '未知');
+                            const keepAliveEnabled = Boolean(s.mediaStats && s.mediaStats.keepAlive && s.mediaStats.keepAlive.enabled);
+                            const lastPlayedMissing = Boolean(s.mediaStats && s.mediaStats.enabled && keepAliveEnabled && !lastPlayedAt && !s.mediaStats.lastPlayedError);
+                            const lastPlayedText = lastPlayedAt ? formatLastPlayedTime(lastPlayedAt) : (s.mediaStats && s.mediaStats.enabled && s.mediaStats.lastPlayedError ? '读取失败' : (lastPlayedMissing ? '未读取到播放记录' : '未知'));
+                            const lastPlayedHint = lastPlayedMissing ? '建议手动刷新或播放一次' : '';
+                            const lastPlayedSource = getLastPlayedSourceLabel(s.mediaStats && s.mediaStats.lastPlayedItem && s.mediaStats.lastPlayedItem.source);
                             const isRefreshingLastPlayed = String(refreshingLastPlayedId || '') === String(s.id);
                             const statusColors = {
                                 online: { text: 'text-emerald-700', bg: 'bg-emerald-500/10', border: 'border-emerald-200', dotClass: 'dot-online', glowClass: 'glow-online' },
@@ -1699,10 +1715,15 @@ const App = () => {
                                                 onClick={() => {
                                                     if (s.mediaStats && s.mediaStats.lastPlayedError) showAlert(s.mediaStats.lastPlayedError, { title: '上次播放读取失败', tone: 'danger' });
                                                 }}
-                                                className={"text-xs font-black tabular-nums truncate text-right " + (lastPlayedAt ? 'text-slate-700' : s.mediaStats.lastPlayedError ? 'text-rose-500' : 'text-slate-400')}
-                                                title={s.mediaStats.lastPlayedError || lastPlayedText}
+                                                className={"min-w-0 max-w-[65%] text-right " + (lastPlayedAt ? 'text-slate-700' : s.mediaStats.lastPlayedError ? 'text-rose-500' : 'text-slate-400')}
+                                                title={s.mediaStats.lastPlayedError || (lastPlayedHint ? lastPlayedText + '，' + lastPlayedHint : lastPlayedText)}
                                             >
-                                                {lastPlayedText}
+                                                <span className="block text-xs font-black tabular-nums truncate">{lastPlayedText}</span>
+                                                {(lastPlayedSource || lastPlayedHint) && (
+                                                    <span className="mt-0.5 block text-[10px] font-bold text-slate-400 truncate">
+                                                        {lastPlayedSource ? '来源：' + lastPlayedSource : lastPlayedHint}
+                                                    </span>
+                                                )}
                                             </button>
                                         </div>
                                     )}
@@ -2239,22 +2260,29 @@ const App = () => {
                                 {/* 媒体库配置 */}
                                 <div className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="flex items-center gap-2 text-slate-700 font-bold">
-                                        <Icons.ShieldCheck className="w-4 h-4 text-purple-500" />启用媒体库资源统计
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                            <Icons.ShieldCheck className="w-4 h-4 text-purple-500" />资源统计
+                                        </div>
+                                        <div className="mt-1 text-[11px] font-bold text-slate-400">系统会用账号密码自动登录 Emby，获取访问 Token 和用户 ID，用于读取最后播放时间</div>
                                     </div>
                                     <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer self-start sm:self-auto">
                                         <input type="checkbox" checked={mediaForm.enabled} onChange={e=>setMediaForm({...mediaForm, enabled: e.target.checked})} className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500" />
+                                        <span>启用媒体数量统计</span>
                                     </label>
                                 </div>
                                 {mediaForm.enabled && (
-                                    <div className="grid grid-cols-2 gap-3 pt-2">
+                                    <div className="space-y-3 pt-2">
+                                        <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">账号登录</div>
+                                        <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">Emby 用户名</label>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">用户名</label>
                                             <input type="text" value={mediaForm.username} onChange={e=>setMediaForm({...mediaForm, username: e.target.value})} placeholder="Admin" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">Emby 密码</label>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">密码</label>
                                             <input type="password" value={mediaForm.password} onChange={e=>setMediaForm({...mediaForm, password: e.target.value})} placeholder="••••••••" className="w-full glass-input px-4 py-2.5 rounded-xl text-sm outline-none" />
+                                        </div>
                                         </div>
                                     </div>
                                 )}
@@ -2264,10 +2292,11 @@ const App = () => {
                                 <div ref={keepAliveSectionRef} className="bg-white/60 p-5 rounded-3xl border border-white shadow-sm space-y-4">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex items-center gap-2 text-slate-700 font-bold">
-                                        <Icons.Clock className="w-4 h-4 text-orange-500" />保号设置
+                                        <Icons.Clock className="w-4 h-4 text-orange-500" />保号检测
                                     </div>
                                     <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer self-start sm:self-auto">
                                         <input type="checkbox" checked={keepAliveForm.enabled} onChange={e=>setKeepAliveForm({...keepAliveForm, enabled: e.target.checked})} className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500" />
+                                        <span>启用保号</span>
                                     </label>
                                 </div>
                                 {keepAliveForm.enabled && (

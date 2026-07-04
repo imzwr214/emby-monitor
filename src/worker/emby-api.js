@@ -119,7 +119,8 @@
           seasonName: String(entry.SeasonName || ''),
           indexNumber: Number.isFinite(Number(entry.ItemIndex)) ? Number(entry.ItemIndex) : null,
           playedPercentage: null,
-          playedAt: Number(playedAt) || 0
+          playedAt: Number(playedAt) || 0,
+          source: 'activity-log'
       };
   },
 
@@ -333,6 +334,13 @@
       for (const base of bases) {
           try {
               await logMedia('base.start', { base });
+              const usageStats = await this.fetchUserUsageStatsLastPlayed(base, server, token, userId, { ...options, clientProfile: successfulProfileId, logMedia, debugEnabled });
+              if (usageStats && usageStats.lastPlayedAt > latestPlayedAt) {
+                  latestPlayedAt = usageStats.lastPlayedAt;
+                  latestItem = usageStats.item;
+                  successfulProfileId = usageStats.clientProfile || successfulProfileId;
+              }
+              if (usageStats && debugEnabled) debug.push(usageStats.debug);
               const endpoints = [
                   { label: 'played-items', path: '/Users/' + encodeURIComponent(userId) + '/Items?' + buildQuery({ ...baseItemsQuery, Filters: 'IsPlayed', Limit: '10' }), timeout: 8000 },
                   { label: 'resume', path: '/Users/' + encodeURIComponent(userId) + '/Items/Resume?' + buildQuery({ Limit: '50', Recursive: 'true', EnableUserData: 'true', Fields: 'UserData,DatePlayed,LastPlayedDate', IncludeItemTypes: 'Movie,Episode,Audio,MusicVideo,Video', api_key: token }), timeout: 5000 },
@@ -458,6 +466,78 @@
       throw error;
   },
 
+  async fetchUserUsageStatsLastPlayed(base, server, token, userId, options = {}) {
+      const rawUserId = String(userId || '').trim();
+      const maxProfiles = Math.max(1, Number(options.maxProfiles) || 10);
+      const profiles = this.getPreferredEmbyClientProfiles(server, options.clientProfile).slice(0, maxProfiles);
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 8000);
+      const logMedia = typeof options.logMedia === 'function' ? options.logMedia : async () => {};
+      if (!/^[A-Za-z0-9_-]+$/.test(rawUserId)) {
+          await logMedia('user-usage-stats.skip.invalidUserId', { base });
+          return null;
+      }
+      const query = "SELECT MAX(DateCreated) AS LastPlayTime, SUM(PlayDuration - PauseDuration) / 60 AS WatchMinutes FROM PlaybackActivity WHERE UserId = '" + rawUserId + "' GROUP BY UserId";
+      for (const profile of profiles) {
+          await logMedia('user-usage-stats.start', { base, profile: profile.id });
+          try {
+              const response = await this.fetchWithTimeout(base + '/user_usage_stats/submit_custom_query', {
+                  method: 'POST',
+                  headers: this.buildEmbyClientHeaders(server, token, profile),
+                  body: JSON.stringify({ CustomQueryString: query, ReplaceUserId: false }),
+                  env: options.env
+              }, timeoutMs);
+              if (!response.ok) {
+                  const detail = await this.readShortResponse(response);
+                  await logMedia('user-usage-stats.httpError', { base, profile: profile.id, status: response.status, responsePreview: detail });
+                  continue;
+              }
+              const text = await response.text();
+              const data = JSON.parse(text);
+              const columns = data && Array.isArray(data.Columns) ? data.Columns : (data && Array.isArray(data.columns) ? data.columns : []);
+              const rowGroups = [
+                  Array.isArray(data) ? data : null,
+                  data && Array.isArray(data.Items) ? data.Items : null,
+                  data && Array.isArray(data.Results) ? data.Results : null,
+                  data && Array.isArray(data.results) ? data.results : null,
+                  data && Array.isArray(data.Rows) ? data.Rows : null,
+                  data && Array.isArray(data.rows) ? data.rows : null
+              ].filter(Boolean);
+              let rows = rowGroups[0] || [];
+              let rowColumns = columns;
+              if (rows[0] && typeof rows[0] === 'object' && !Array.isArray(rows[0]) && (Array.isArray(rows[0].Rows) || Array.isArray(rows[0].rows))) {
+                  rowColumns = Array.isArray(rows[0].Columns) ? rows[0].Columns : (Array.isArray(rows[0].columns) ? rows[0].columns : columns);
+                  rows = rows[0].Rows || rows[0].rows || [];
+              }
+              const row = rows[0];
+              if (!row) {
+                  await logMedia('user-usage-stats.empty', { base, profile: profile.id });
+                  return null;
+              }
+              const getColumnValue = (name, fallbackIndex) => {
+                  if (Array.isArray(row)) {
+                      const index = rowColumns.findIndex((column) => String(column || '').toLowerCase() === name.toLowerCase());
+                      return row[index >= 0 ? index : fallbackIndex];
+                  }
+                  if (!row || typeof row !== 'object') return '';
+                  return row[name] || row[name.charAt(0).toLowerCase() + name.slice(1)] || row[name.toUpperCase()] || '';
+              };
+              const lastPlayedAt = this.parseEmbyDate(getColumnValue('LastPlayTime', 0));
+              if (!lastPlayedAt) {
+                  await logMedia('user-usage-stats.mismatch', { base, profile: profile.id, keys: row && typeof row === 'object' ? Object.keys(row).slice(0, 20) : [] });
+                  return null;
+              }
+              const watchMinutesValue = Number(getColumnValue('WatchMinutes', 1));
+              const watchMinutes = Number.isFinite(watchMinutesValue) ? watchMinutesValue : null;
+              const item = { id: '', name: '', type: 'UserUsageStats', playedAt: lastPlayedAt, source: 'user-usage-stats', watchMinutes };
+              await logMedia('user-usage-stats.done', { base, profile: profile.id, lastPlayedAt, watchMinutes });
+              return { lastPlayedAt, clientProfile: profile.id, item, debug: { endpoint: 'user-usage-stats', ok: true, latestParsedAt: lastPlayedAt, latestItem: item } };
+          } catch(e) {
+              await logMedia('user-usage-stats.error', { base, profile: profile.id, error: e.message || String(e) });
+          }
+      }
+      return null;
+  },
+
   async fetchPlaybackReportingLastPlayed(base, server, token, userId, options = {}) {
       const cleanUserId = this.normalizeEmbyUserId(userId);
       if (!cleanUserId) return null;
@@ -501,7 +581,7 @@
                           indexNumber: null,
                           playedPercentage: null,
                           playedAt,
-                          source: endpoint.label
+                          source: 'playback-reporting'
                       }
                   };
               }
